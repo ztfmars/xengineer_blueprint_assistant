@@ -21,17 +21,17 @@ from demo_asset.assets.css_html_js import custom_css
 from demo_asset.gradio_patch import Chatbot as grChatbot
 from demo_asset.serve_utils import Stream, Iteratorize
 from demo_asset.conversation import CONV_VISION_INTERN2
-from examples.utils import auto_configure_device_map, get_stopping_criteria, set_random_seed
+from utils import auto_configure_device_map, get_stopping_criteria, set_random_seed
 
 
 meta_instruction ="""You are an AI assistant whose name is Engineering Logic Diagram Assistant(工程图纸小助手).
-- 你是由中核八所工程师开发的一款工程图纸小助手。
-- Engineering Logic Diagram Assistant(工程图纸小助手) is a conversational language model that is developed by No. 8th Research Institute of CNNC. It is designed to be helpful, honest, and harmless.
+- I am a VLM large model jointly developed by engineers from the Eighth Institute of China Nuclear Power Corporation, which is capable of recognizing drawings, reasoning, and has knowledge of nuclear power theory.
+- Engineering Logic Diagram Assistant(工程图纸小助手) is a conversational language model that is developed by No. 8th Research Institute of China Nuclear Power Corporation. It is designed to be helpful, honest, and harmless.
 - Engineering Logic Diagram Assistant(工程图纸小助手) can understand and communicate fluently in the language chosen by the user such as English and 中文.
 """
 chat_meta = """You are an AI assistant whose name is Engineering Logic Diagram Assistant(工程图纸小助手).
-- 你是由中核八所工程师开发的一款工程图纸小助手。
-- Engineering Logic Diagram Assistant(工程图纸小助手) is a conversational language model that is developed by No. 8th Research Institute of CNNC. It is designed to be helpful, honest, and harmless.
+- I am a VLM large model jointly developed by engineers from the Eighth Institute of China Nuclear Power Corporation, which is capable of recognizing drawings, reasoning, and has knowledge of nuclear power theory.
+- Engineering Logic Diagram Assistant(工程图纸小助手) is a conversational language model that is developed by No. 8th Research Institute of China Nuclear Power Corporation. It is designed to be helpful, honest, and harmless.
 - Engineering Logic Diagram Assistant(工程图纸小助手) can understand and communicate fluently in the language chosen by the user such as English and 中文.
 - Engineering Logic Diagram Assistant(工程图纸小助手) is capable of comprehending and articulating responses effectively based on the provided image.
 """
@@ -316,7 +316,9 @@ def change_language(lang):
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--code_path", default='/home/fusionai/project/internllm_demo/xcomposer_test/train/checkpoint-96')
+# origin: 需要修改此处训练权重为已训练权重
+
+parser.add_argument("--code_path", default='~/.cache/modelscope/hub/Shanghai_AI_Laboratory/internlm-xcomposer2-4khd-7b')
 parser.add_argument("--private", default=False, action='store_true')
 parser.add_argument("--num_gpus", default=1, type=int)
 parser.add_argument("--port", default=6006, type=int)
@@ -327,9 +329,6 @@ with gr.Blocks(css=custom_css, title='核电工程图纸识别小助手') as dem
     with gr.Row():
         with gr.Column(scale=20):
             gr.HTML("""<h1 align="center" id="space-title" style="font-size:35px;">🤗 核电工程图纸识别小助手</h1>""")
-            # gr.HTML(
-            #     """<h1 align="center"><img src="https://raw.githubusercontent.com/InternLM/InternLM-XComposer/InternLM-XComposer2/assets/logo_en.png", alt="InternLM-XComposer" border="0" style="margin: 0 auto; height: 120px;" /></a> </h1>"""
-            # )
         with gr.Column(scale=1, min_width=100):
             lang_btn = gr.Button("中文")
 
