@@ -8,3 +8,7 @@ einops
 deepspeed
 peft
 modelscope
+flash-attn==2.3.6
+setuptools==69.5.1
+numpy==1.23.4
+deepspeed==0.13.5
