@@ -1,6 +1,6 @@
 #################################################################################################
 #
-# Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -38,13 +38,7 @@ import enum
 import os.path
 import shutil
 
-try:
-  import builtins
-  if hasattr(builtins, "CUTLASS_IGNORE_PACKAGE") and CUTLASS_IGNORE_PACKAGE == True:
-    raise ImportError("Disabling attempt to import cutlass_library")
-  from cutlass_library.library import *
-except ImportError:
-  from library import *
+from cutlass_library.library import *
 
 ###################################################################################################
 
@@ -75,10 +69,6 @@ class Conv2dOperation:
       MathOperation.multiply_add_complex_gaussian
       ]
     return self.tile_description.math_instruction.math_operation in complex_operators
-
-  #
-  def is_mixed_input(self):
-    return self.A.element != self.B.element
 
   #
   def accumulator_type(self):
@@ -267,7 +257,7 @@ class EmitConv2dInstance:
           1,
           ${threadblock_output_shape_n},
           ${threadblock_output_shape_p},
-          ${threadblock_output_shape_q}>,
+          ${threadblock_output_shape_q}>, 
     ${stages},
     ${math_operator},
     ${iterator_algorithm},

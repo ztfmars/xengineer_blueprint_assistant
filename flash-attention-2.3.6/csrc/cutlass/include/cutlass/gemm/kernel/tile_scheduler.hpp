@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -38,7 +38,6 @@
 #include "cutlass/detail/dependent_false.hpp"
 #include "cutlass/gemm/kernel/sm90_tile_scheduler.hpp"
 #include "cutlass/gemm/kernel/sm90_tile_scheduler_stream_k.hpp"
-#include "cutlass/gemm/kernel/sm90_tile_scheduler_group.hpp"
 ////////////////////////////////////////////////////////////////////////////////
 
 namespace cutlass::gemm {
@@ -52,8 +51,6 @@ namespace cutlass::gemm {
 struct PersistentScheduler { };
 
 struct StreamKScheduler { };
-
-struct GroupScheduler { }; // Only used for Grouped GEMMs
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -72,7 +69,6 @@ template <
   class ArchTag,
   class TileShape,
   class ClusterShape
-  , class ProblemShapeType = void
 >
 struct TileSchedulerSelector {
   static_assert(cutlass::detail::dependent_false<ArchTag>,
@@ -124,21 +120,6 @@ struct TileSchedulerSelector<
   ClusterShape
   > {
   using Scheduler = PersistentTileSchedulerSm90StreamK<TileShape, ClusterShape>;
-};
-
-template <
-  class TileShape,
-  class ClusterShape
-  , class GroupProblemShape
->
-struct TileSchedulerSelector<
-  GroupScheduler,
-  arch::Sm90,
-  TileShape,
-  ClusterShape
-  , GroupProblemShape
-  > {
-  using Scheduler = PersistentTileSchedulerSm90Group<GroupProblemShape>;
 };
 
 ////////////////////////////////////////////////////////////////////////////////

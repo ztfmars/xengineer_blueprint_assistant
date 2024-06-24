@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,17 +39,10 @@
 
 #include <cute/numeric/int.hpp>           // sizeof_bits
 #include <cute/numeric/integral_constant.hpp>
+#include <cute/container/bit_field.hpp>   // dummy_type
 
 namespace cute
 {
-
-template <class T>
-struct is_subbyte {
-  static constexpr bool value = sizeof_bits_v<T> < 8;
-};
-
-template <class T>
-constexpr bool is_subbyte_v = is_subbyte<T>::value;
 
 //
 // Underlying subbyte storage type
@@ -60,44 +53,43 @@ using subbyte_storage_type_t = conditional_t<(sizeof_bits_v<T> <=   8), uint8_t,
                                conditional_t<(sizeof_bits_v<T> <=  32), uint32_t,
                                conditional_t<(sizeof_bits_v<T> <=  64), uint64_t,
                                conditional_t<(sizeof_bits_v<T> <= 128), uint128_t,
-                               T>>>>>;
+                               dummy_type>>>>>;
 
-template <class T> struct subbyte_iterator;
-template <class, class> struct swizzle_ptr;
+template <class T>
+struct subbyte_iterator;
 
 //
 // subbyte_reference
 //   Proxy object for sub-byte element references
 //
 template <class T>
-struct subbyte_reference
+struct subbyte_reference 
 {
   // Iterator Element type (const or non-const)
   using element_type = T;
-  // Iterator Value type without type qualifier.
+  // Iterator Value type without type qulifier.
   using value_type   = remove_cv_t<T>;
   // Storage type (const or non-const)
   using storage_type = conditional_t<(is_const_v<T>), subbyte_storage_type_t<T> const, subbyte_storage_type_t<T>>;
 
-  static_assert(sizeof_bits_v<storage_type> % 8 == 0, "Storage type is not supported");
+  static_assert(!is_same_v<storage_type, dummy_type>, "Storage type is not supported");
 
   static_assert(sizeof_bits_v<element_type> <= sizeof_bits_v<storage_type>,
                 "Size of Element must not be greater than Storage.");
 
+  // Number of logical elements per stored object
+  static constexpr uint8_t ElementsPerStoredItem = sizeof_bits_v<storage_type> / sizeof_bits_v<element_type>;
+  // Bitmask for covering one item
+  static constexpr storage_type BitMask = storage_type((storage_type(1) << sizeof_bits_v<element_type>) - 1);
+
 private:
 
-  // Bitmask for covering one item
-  static constexpr storage_type BitMask = storage_type(storage_type(-1) >> (sizeof_bits_v<storage_type> - sizeof_bits_v<element_type>));
-  // Flag for fast branching on straddled elements
-  static constexpr bool is_storage_unaligned = ((sizeof_bits_v<storage_type> % sizeof_bits_v<element_type>) != 0);
-
-  friend struct subbyte_iterator<T>;
-
+  friend class subbyte_iterator<T>;
+  
   // Pointer to storage element
   storage_type* ptr_ = nullptr;
 
-  // Bit index of value_type starting position within storage_type element.
-  // RI: 0 <= idx_ < sizeof_bit<storage_type>
+  // Index into elements packed into storage_type element. RI: 0 <= idx_ < ElementsPerStoredItem
   uint8_t idx_ = 0;
 
   // Ctor
@@ -108,73 +100,38 @@ private:
 public:
 
   // Copy Ctor
-  CUTE_HOST_DEVICE constexpr
+  CUTE_HOST_DEVICE constexpr 
   subbyte_reference(subbyte_reference const& other) {
     *this = element_type(other);
   }
 
   // Copy Assignment
-  CUTE_HOST_DEVICE constexpr
+  CUTE_HOST_DEVICE constexpr 
   subbyte_reference& operator=(subbyte_reference const& other) {
     return *this = element_type(other);
   }
 
+  // Dtor
+  ~subbyte_reference() = default;
+
   // Assignment
-  template <class T_ = element_type>
+  template<class T_=element_type>
   CUTE_HOST_DEVICE constexpr
-  enable_if_t<!is_const_v<T_>, subbyte_reference&> operator=(element_type x)
-  {
+  enable_if_t<!is_const_v<T_>,  subbyte_reference&> operator=(element_type x) {
     static_assert(is_same_v<T_, element_type>, "Do not specify template arguments!");
-    storage_type item = (reinterpret_cast<storage_type const&>(x) & BitMask);
-
-    // Update the current storage element
-    storage_type bit_mask_0 = storage_type(BitMask << idx_);
-    ptr_[0] = storage_type((ptr_[0] & ~bit_mask_0) | (item << idx_));
-
-    // If value_type is unaligned with storage_type (static) and this is a straddled value (dynamic)
-    if (is_storage_unaligned && idx_ + sizeof_bits_v<value_type> > sizeof_bits_v<storage_type>) {
-      uint8_t straddle_bits = uint8_t(sizeof_bits_v<storage_type> - idx_);
-      storage_type bit_mask_1 = storage_type(BitMask >> straddle_bits);
-      // Update the next storage element
-      ptr_[1] = storage_type((ptr_[1] & ~bit_mask_1) | (item >> straddle_bits));
-    }
-
+    storage_type item = (reinterpret_cast<storage_type const &>(x) & BitMask);
+    storage_type kUpdateMask = storage_type(~(BitMask << (idx_ * sizeof_bits_v<element_type>)));
+    *ptr_ = storage_type((*ptr_ & kUpdateMask) | (item << (idx_ * sizeof_bits_v<element_type>)));
     return *this;
   }
 
-  // Comparison of referenced values
-  CUTE_HOST_DEVICE constexpr friend
-  bool operator==(subbyte_reference const& x, subbyte_reference const& y) { return x.get() == y.get(); }
-  CUTE_HOST_DEVICE constexpr friend
-  bool operator!=(subbyte_reference const& x, subbyte_reference const& y) { return x.get() != y.get(); }
-  CUTE_HOST_DEVICE constexpr friend
-  bool operator< (subbyte_reference const& x, subbyte_reference const& y) { return x.get() <  y.get(); }
-  CUTE_HOST_DEVICE constexpr friend
-  bool operator> (subbyte_reference const& x, subbyte_reference const& y) { return x.get() >  y.get(); }
-  CUTE_HOST_DEVICE constexpr friend
-  bool operator<=(subbyte_reference const& x, subbyte_reference const& y) { return x.get() <= y.get(); }
-  CUTE_HOST_DEVICE constexpr friend
-  bool operator>=(subbyte_reference const& x, subbyte_reference const& y) { return x.get() >= y.get(); }
-
-  // Value
   CUTE_HOST_DEVICE
-  element_type get() const
-  {
+  element_type get() const {
     if constexpr (is_same_v<bool, value_type>) {      // Extract to bool -- potentially faster impl
-      return bool((*ptr_) & (BitMask << idx_));
+      return bool((*ptr_) & (BitMask << (idx_ * sizeof_bits_v<element_type>)));
     } else {                                          // Extract to element_type
-      // Extract from the current storage element
-      auto item = storage_type((ptr_[0] >> idx_) & BitMask);
-
-      // If value_type is unaligned with storage_type (static) and this is a straddled value (dynamic)
-      if (is_storage_unaligned && idx_ + sizeof_bits_v<value_type> > sizeof_bits_v<storage_type>) {
-        uint8_t straddle_bits = uint8_t(sizeof_bits_v<storage_type> - idx_);
-        storage_type bit_mask_1 = storage_type(BitMask >> straddle_bits);
-        // Extract from the next storage element
-        item |= storage_type((ptr_[1] & bit_mask_1) << straddle_bits);
-      }
-
-      return reinterpret_cast<element_type&>(item);
+      storage_type item = storage_type((*ptr_ >> (idx_ * sizeof_bits_v<element_type>)) & BitMask);
+      return reinterpret_cast<element_type &>(item);
     }
   }
 
@@ -185,77 +142,63 @@ public:
   }
 };
 
+
 //
 // subbyte_iterator
 //   Random-access iterator over subbyte references
 //
 template <class T>
-struct subbyte_iterator
+struct subbyte_iterator 
 {
   // Iterator Element type (const or non-const)
   using element_type = T;
-  // Iterator Value type without type qualifier.
+  // Iterator Value type without type qulifier.
   using value_type   = remove_cv_t<T>;
   // Storage type (const or non-const)
   using storage_type = conditional_t<(is_const_v<T>), subbyte_storage_type_t<T> const, subbyte_storage_type_t<T>>;
   // Reference proxy type
   using reference = subbyte_reference<element_type>;
 
-  static_assert(sizeof_bits_v<storage_type> % 8 == 0, "Storage type is not supported");
+  static_assert(!is_same_v<storage_type, dummy_type>, "Storage type is not supported");
 
   static_assert(sizeof_bits_v<element_type> <= sizeof_bits_v<storage_type>,
                 "Size of Element must not be greater than Storage.");
 
-private:
+  // Number of logical elements per stored object
+  static constexpr uint8_t ElementsPerStoredItem = sizeof_bits_v<storage_type> / sizeof_bits_v<element_type>;
 
-  template <class, class> friend struct swizzle_ptr;
+private:
 
   // Pointer to storage element
   storage_type* ptr_ = nullptr;
 
-  // Bit index of value_type starting position within storage_type element.
-  // RI: 0 <= idx_ < sizeof_bit<storage_type>
+  // Index into elements packed into storage_type element. RI: 0 <= idx_ < ElementsPerStoredItem
   uint8_t idx_ = 0;
 
 public:
 
-  // Ctor
-  subbyte_iterator() = default;
-
-  // Ctor
   template <class PointerType>
   CUTE_HOST_DEVICE constexpr
-  subbyte_iterator(PointerType* ptr, uint8_t idx = 0) : ptr_(reinterpret_cast<storage_type*>(ptr)), idx_(idx) { }
+  subbyte_iterator(PointerType* ptr, uint8_t idx = 0): ptr_(reinterpret_cast<storage_type*>(ptr)), idx_(idx) { }
 
+  subbyte_iterator() = default;
   CUTE_HOST_DEVICE constexpr
-  reference operator*() const {
-    return reference(ptr_, idx_);
-  }
-
-  CUTE_HOST_DEVICE constexpr
-  subbyte_iterator& operator+=(uint64_t k) {
-    k = sizeof_bits_v<value_type> * k + idx_;
-    ptr_ += k / sizeof_bits_v<storage_type>;
-    idx_  = k % sizeof_bits_v<storage_type>;
+  subbyte_iterator& operator++() {
+    ++idx_;
+    if (idx_ == ElementsPerStoredItem) {
+      ++ptr_;
+      idx_ = 0;
+    }
     return *this;
   }
 
   CUTE_HOST_DEVICE constexpr
-  subbyte_iterator operator+(uint64_t k) const {
-    return subbyte_iterator(ptr_, idx_) += k;
-  }
-
-  CUTE_HOST_DEVICE constexpr
-  reference operator[](uint64_t k) const {
-    return *(*this + k);
-  }
-
-  CUTE_HOST_DEVICE constexpr
-  subbyte_iterator& operator++() {
-    idx_ += sizeof_bits_v<value_type>;
-    if (idx_ >= sizeof_bits_v<storage_type>) {
-      ++ptr_;
-      idx_ -= sizeof_bits_v<storage_type>;
+  subbyte_iterator& operator--() {
+    if (idx_) {
+      --idx_;
+    } else {
+      --ptr_;
+      idx_ = ElementsPerStoredItem - 1;
     }
     return *this;
   }
@@ -268,62 +211,43 @@ public:
   }
 
   CUTE_HOST_DEVICE constexpr
-  subbyte_iterator& operator--() {
-    if (idx_ >= sizeof_bits_v<value_type>) {
-      idx_ -= sizeof_bits_v<value_type>;
-    } else {
-      --ptr_;
-      idx_ += sizeof_bits_v<storage_type> - sizeof_bits_v<value_type>;
-    }
-    return *this;
-  }
-
-  CUTE_HOST_DEVICE constexpr
   subbyte_iterator operator--(int) {
     subbyte_iterator ret(*this);
     --(*this);
     return ret;
   }
 
-  CUTE_HOST_DEVICE constexpr friend
-  bool operator==(subbyte_iterator const& x, subbyte_iterator const& y) {
+  CUTE_HOST_DEVICE constexpr
+  subbyte_iterator& operator+=(uint64_t k) {
+    k += idx_;
+    ptr_ += k / ElementsPerStoredItem;
+    idx_  = k % ElementsPerStoredItem;
+    return *this;
+  }
+
+  CUTE_HOST_DEVICE constexpr
+  subbyte_iterator operator+(uint64_t k) const {
+    return subbyte_iterator(ptr_,idx_) += k;
+  }
+
+  CUTE_HOST_DEVICE constexpr
+  reference operator*() const {
+    return reference(ptr_, idx_);
+  }
+
+  CUTE_HOST_DEVICE constexpr
+  reference operator[](uint64_t k) const {
+    return *(*this + k);
+  }
+
+  CUTE_HOST_DEVICE constexpr
+  friend bool operator==(subbyte_iterator const& x, subbyte_iterator const& y) {
     return x.ptr_ == y.ptr_ && x.idx_ == y.idx_;
   }
-  CUTE_HOST_DEVICE constexpr friend
-  bool operator< (subbyte_iterator const& x, subbyte_iterator const& y) {
-    return x.ptr_ < y.ptr_ || (x.ptr_ == y.ptr_ && x.idx_ < y.idx_);
-  }
-  CUTE_HOST_DEVICE constexpr friend
-  bool operator!=(subbyte_iterator const& x, subbyte_iterator const& y) { return !(x == y); }
-  CUTE_HOST_DEVICE constexpr friend
-  bool operator<=(subbyte_iterator const& x, subbyte_iterator const& y) { return !(y <  x); }
-  CUTE_HOST_DEVICE constexpr friend
-  bool operator> (subbyte_iterator const& x, subbyte_iterator const& y) { return  (y <  x); }
-  CUTE_HOST_DEVICE constexpr friend
-  bool operator>=(subbyte_iterator const& x, subbyte_iterator const& y) { return !(x <  y); }
 
-  // Conversion to raw pointer with loss of subbyte index
-  CUTE_HOST_DEVICE constexpr friend
-  T* raw_pointer_cast(subbyte_iterator const& x) {
-    assert(x.idx_ == 0);
-    return reinterpret_cast<T*>(x.ptr_);
-  }
-
-  // Conversion to NewT_ with possible loss of subbyte index
-  template <class NewT_>
-  CUTE_HOST_DEVICE constexpr friend
-  auto recast_ptr(subbyte_iterator const& x) {
-    using NewT = conditional_t<(is_const_v<T>), NewT_ const, NewT_>;
-    if constexpr (is_subbyte<NewT>::value) {       // Making subbyte_iter, preserve the subbyte idx
-      return subbyte_iterator<NewT>(x.ptr_, x.idx_);
-    } else {                                       // Not subbyte, assume/assert subbyte idx 0
-      return reinterpret_cast<NewT*>(raw_pointer_cast(x));
-    }
-    CUTE_GCC_UNREACHABLE;
-  }
-
-  CUTE_HOST_DEVICE friend void print(subbyte_iterator x) {
-    printf("subptr[%db](%p.%u)", int(sizeof_bits<T>::value), x.ptr_, x.idx_);
+  CUTE_HOST_DEVICE constexpr
+  friend bool operator!=(subbyte_iterator const& x, subbyte_iterator const& y) {
+    return !(x == y);
   }
 };
 
@@ -357,12 +281,18 @@ struct array_subbyte
   // Storage type (const or non-const)
   using storage_type = conditional_t<(is_const_v<T>), subbyte_storage_type_t<T> const, subbyte_storage_type_t<T>>;
 
-  static_assert(sizeof_bits_v<storage_type> % 8 == 0, "Storage type is not supported");
+  static_assert(!is_same_v<storage_type, dummy_type>, "Storage type is not supported");
+
+  // Number of logical elements per stored object
+  static constexpr uint8_t ElementsPerStoredItem = sizeof_bits_v<storage_type> / sizeof_bits_v<T>;
+
+  // Bitmask for covering one item
+  static constexpr storage_type BitMask = ((storage_type(1) << sizeof_bits<T>::value) - 1);
+
+  // Number of storage elements
+  static constexpr size_type StorageElements = (N + ElementsPerStoredItem - 1) / ElementsPerStoredItem;
 
 private:
-
-  // Number of storage elements, ceil_div
-  static constexpr size_type StorageElements = (N * sizeof_bits_v<value_type> + sizeof_bits_v<storage_type> - 1) / sizeof_bits_v<storage_type>;
 
   // Internal storage
   storage_type storage[StorageElements];
@@ -370,7 +300,7 @@ private:
 public:
 
   CUTE_HOST_DEVICE constexpr
-  array_subbyte() {}
+  array_subbyte() { }
 
   CUTE_HOST_DEVICE constexpr
   array_subbyte(array_subbyte const& x) {
@@ -404,11 +334,20 @@ public:
     }
   }
 
+  // Efficient fill method
   CUTE_HOST_DEVICE constexpr
   void fill(T const& value) {
+    storage_type item = (reinterpret_cast<storage_type const&>(value) & BitMask);
+
+    // Reproduce the value over the bits of the storage item
     CUTE_UNROLL
-    for (size_type i = 0; i < N; ++i) {
-      at(i) = value;
+    for (size_type s = sizeof_bits_v<T>; s < sizeof_bits_v<storage_type>; s *= 2) {
+      item |= item << s;
+    }
+
+    CUTE_UNROLL
+    for (size_type i = 0; i < StorageElements; ++i) {
+      storage[i] = item;
     }
   }
 
@@ -489,12 +428,12 @@ public:
 
   CUTE_HOST_DEVICE constexpr
   iterator end() {
-    return iterator(storage) + N;
+    return iterator(storage + N / ElementsPerStoredItem, N % ElementsPerStoredItem);
   }
 
   CUTE_HOST_DEVICE constexpr
   const_iterator end() const {
-    return const_iterator(storage) + N;
+    return const_iterator(storage + N / ElementsPerStoredItem, N % ElementsPerStoredItem);
   }
 
   CUTE_HOST_DEVICE constexpr
@@ -569,12 +508,6 @@ T&& get(array_subbyte<T,N>&& a)
 
 namespace CUTE_STL_NAMESPACE
 {
-
-template <class T>
-struct is_reference<cute::subbyte_reference<T>>
-    : CUTE_STL_NAMESPACE::true_type
-{};
-
 
 template <class T, size_t N>
 struct tuple_size<cute::array_subbyte<T,N>>

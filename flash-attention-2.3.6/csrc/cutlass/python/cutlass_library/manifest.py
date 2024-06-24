@@ -1,6 +1,6 @@
 #################################################################################################
 #
-# Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -36,31 +36,18 @@ and building code
 """
 
 import enum
-import logging
 import os.path
 import shutil
 
-try:
-  import builtins
-  if hasattr(builtins, "CUTLASS_IGNORE_PACKAGE") and CUTLASS_IGNORE_PACKAGE == True:
-    raise ImportError("Disabling attempt to import cutlass_library")
-  from cutlass_library.library import *
-  from cutlass_library.gemm_operation import *
-  from cutlass_library.rank_k_operation import *
-  from cutlass_library.rank_2k_operation import *
-  from cutlass_library.trmm_operation import *
-  from cutlass_library.symm_operation import *
-  from cutlass_library.conv2d_operation import *
-  from cutlass_library.conv3d_operation import *
-except ImportError:
-  from library import *
-  from gemm_operation import *
-  from rank_k_operation import *
-  from rank_2k_operation import *
-  from trmm_operation import *
-  from symm_operation import *
-  from conv2d_operation import *
-  from conv3d_operation import *
+from cutlass_library.library import *
+from cutlass_library.gemm_operation import *
+from cutlass_library.rank_k_operation import *
+from cutlass_library.rank_2k_operation import *
+from cutlass_library.trmm_operation import *
+from cutlass_library.symm_operation import *
+from cutlass_library.conv2d_operation import *
+from cutlass_library.conv3d_operation import *
+import logging
 
 ###################################################################################################
 _LOGGER = logging.getLogger(__name__)
@@ -182,7 +169,7 @@ void initialize_all_sm${min_cc}_${subclass_name}_${operation_name}_operations(Ma
     self.configuration_prototype_template = "void initialize_${configuration_name}(Manifest &manifest);\n"
     self.configuration_template = "  initialize_${configuration_name}(manifest);\n"
     self.subclass_call_template = "  initialize_all_sm${min_cc}_${subclass_name}_${operation_name}_operations(manifest);\n"
-    self.subclass_prototype_template = "void initialize_all_sm${min_cc}_${subclass_name}_${operation_name}_operations(Manifest &manifest);\n"
+
     self.epilogue_template ="""}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -250,13 +237,6 @@ void initialize_all_sm${min_cc}_${subclass_name}_${operation_name}_operations(Ma
 
   #
   def __exit__(self, exception_type, exception_value, traceback):
-    for subclass_name, subclass_file in sorted(self.subclass_files.items()):
-      subclass_cfg = {
-        'min_cc': str(self.min_cc),
-        'subclass_name': subclass_name,
-        'operation_name': OperationKindNames[self.kind]
-      }
-      self.top_level_file.write(SubstituteTemplate(self.subclass_prototype_template, subclass_cfg))
 
     self.top_level_file.write(
       SubstituteTemplate(self.entry_template, {
@@ -400,6 +380,7 @@ class Manifest:
 
       architectures = args.architectures.split(';') if len(args.architectures) else ['50',]
       architectures = [x if x != '90a' else '90' for x in architectures]
+
       self.compute_capabilities = [int(x) for x in architectures]
 
       if args.filter_by_cc in ['false', 'False', '0']:
@@ -429,7 +410,7 @@ class Manifest:
         self.kernel_filter_list = []
     else:
         self.kernel_filter_list = self.get_kernel_filters(args.kernel_filter_file)
-        _LOGGER.debug("Using {filter_count} kernel filters from {filter_file}".format(
+        _LOGGER.info("Using {filter_count} kernel filters from {filter_file}".format(
             filter_count = len(self.kernel_filter_list),
             filter_file = args.kernel_filter_file))
 

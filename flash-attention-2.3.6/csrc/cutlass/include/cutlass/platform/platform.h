@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -55,7 +55,7 @@
  *   (2) Re-implementations of STL functions and types:
  *       - C++ features that need the \p __device__ annotation.  These are
  *         placed into the \p platform namespace.
- *           - \p abs
+ *           - \p abs 
  *           - \p plus
  *           - \p less
  *           - \p greater
@@ -128,13 +128,11 @@
 #include <cstddef>     // nullptr_t
 #include <functional>  // Arithmetic operations
 #include <utility>     // For methods on std::pair
-#include <limits>      // float_round_style, float_denorm_style
 #if (!defined(_MSC_VER) && (__cplusplus >= 201103L)) || (defined(_MSC_VER) && (_MS_VER >= 1500))
 #include <type_traits>  // For integral constants, conditional metaprogramming, and type traits
 #endif
 
-#include <vector_types.h>
-#include <cutlass/cutlass.h>
+#include "cutlass/cutlass.h"
 
 #endif
 
@@ -390,14 +388,10 @@ struct conditional<false, T, F> {
   typedef F type;
 };
 
-template <class...>
-using void_t = void;
-
 #else
 
 using std::enable_if;
 using std::conditional;
-using std::void_t;
 
 #endif
 

@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -97,7 +97,9 @@ TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 25
   >;
 
   using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
-  bool passed = test::gemm::device::TestAll<Gemm, cutlass::epilogue::thread::ReLu>(1, 1);
+
+  test::gemm::device::Testbed3x<Gemm, cutlass::epilogue::thread::ReLu> testbed;
+  bool passed = test::gemm::device::TestAll<Gemm>(1, 1, testbed);
   EXPECT_TRUE(passed);
 }
 
@@ -153,7 +155,6 @@ TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 25
 #endif // _MSC_VER
 #pragma GCC diagnostic pop // Re-enable deprecation warnings
 }
-
 
 TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 256x128x64_2x2x1_BiasF32_ReLU) {
   using LayoutA = cutlass::layout::RowMajor;
@@ -238,8 +239,9 @@ TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 25
   >;
 
   using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
-  using namespace test::gemm::device; 
-  bool passed = TestAllBiasElementwise<Gemm>(1, 1, CheckEquality::RELATIVE);
+
+  bool check_relative_equality = true;
+  bool passed = test::gemm::device::TestAllBiasElementwise<Gemm>(1, 1, check_relative_equality);
   EXPECT_TRUE(passed);
 }
 
@@ -387,7 +389,7 @@ TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 25
 
   using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecializedCooperative;
   using FusionOperation = cutlass::epilogue::fusion::LinCombPerRowBiasEltActAux<
-      LayoutC, cutlass::epilogue::thread::ReLu, cutlass::half_t, float, cutlass::half_t, float, void>;
+      LayoutC, cutlass::epilogue::thread::ReLu, cutlass::half_t, float, cutlass::half_t, float>;
 
   using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
       cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
@@ -432,7 +434,7 @@ TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 25
 
   using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecializedCooperative;
   using FusionOperation = cutlass::epilogue::fusion::LinCombPerRowBiasEltActAux<
-      LayoutC, cutlass::epilogue::thread::ReLu, cutlass::half_t, float, cutlass::half_t, cutlass::half_t, void>;
+      LayoutC, cutlass::epilogue::thread::ReLu, cutlass::half_t, float, cutlass::half_t, cutlass::half_t>;
 
   using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
       cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
@@ -467,7 +469,7 @@ TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 25
   EXPECT_TRUE(passed);
 }
 
-TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 256x128x64_2x2x1_BiasS8_ReLU_VoidC_U1Aux) {
+TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 256x128x64_2x2x1_BiasS8_ReLU_VoidC) {
 
   using LayoutA = cutlass::layout::RowMajor;
   using LayoutB = cutlass::layout::ColumnMajor;
@@ -476,9 +478,8 @@ TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 25
   using ClusterShape_MNK = Shape<_2,_2,_1>;
 
   using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecializedCooperative;
-  // ReLU with uint1b_t aux will compute dReLU/dZ as the aux output, i.e. Aux(i) = (Z(i) >= 0) ? 1 : 0
   using FusionOperation = cutlass::epilogue::fusion::LinCombPerRowBiasEltActAux<
-      LayoutC, cutlass::epilogue::thread::ReLU, cutlass::half_t, float, cutlass::uint1b_t, int8_t, void>;
+      LayoutC, cutlass::epilogue::thread::ReLu, cutlass::half_t, float, cutlass::half_t, int8_t>;
 
   using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
       cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
@@ -510,96 +511,6 @@ TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 25
   using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 
   bool passed = test::gemm::device::TestAllBiasElementwise<Gemm>();
-  EXPECT_TRUE(passed);
-}
-
-TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 256x128x64_2x2x1_dReLU_dBias_VoidC) {
-
-  using LayoutA = cutlass::layout::RowMajor;
-  using LayoutB = cutlass::layout::ColumnMajor;
-  using LayoutC = cutlass::layout::RowMajor;
-  using TileShape_MNK = Shape<_256,_128,_64>;
-  using ClusterShape_MNK = Shape<_2,_2,_1>;
-
-  using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecializedCooperative;
-  using FusionOperation = cutlass::epilogue::fusion::LinCombDeEltActDePerRowBias<
-      LayoutC, cutlass::epilogue::thread::dReLU, cutlass::half_t, float, cutlass::uint1b_t, float, void>;
-
-  using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
-      cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
-      TileShape_MNK, ClusterShape_MNK,
-      cutlass::epilogue::collective::EpilogueTileAuto,
-      float, float,
-      void, LayoutC, 8,
-      cutlass::half_t, LayoutC, 8,
-      EpilogueSchedule,
-      FusionOperation
-    >::CollectiveOp;
-
-  using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
-      cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
-      cutlass::half_t, LayoutA, 8,
-      cutlass::half_t, LayoutB, 8,
-      float,
-      TileShape_MNK, ClusterShape_MNK,
-      cutlass::gemm::collective::StageCountAutoCarveout<sizeof(typename CollectiveEpilogue::SharedStorage)>,
-      cutlass::gemm::KernelTmaWarpSpecializedCooperative
-    >::CollectiveOp;
-
-  using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
-      Shape<int,int,int,int>,
-      CollectiveMainloop,
-      CollectiveEpilogue
-  >;
-
-  using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
-
-  bool passed = test::gemm::device::TestAllBiasElementwise<Gemm>();
-  EXPECT_TRUE(passed);
-}
-
-TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 256x128x64_2x2x1_dGELU_VoidC) {
-
-  using LayoutA = cutlass::layout::RowMajor;
-  using LayoutB = cutlass::layout::ColumnMajor;
-  using LayoutC = cutlass::layout::RowMajor;
-  using TileShape_MNK = Shape<_256,_128,_64>;
-  using ClusterShape_MNK = Shape<_2,_2,_1>;
-
-  using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecializedCooperative;
-  using FusionOperation = cutlass::epilogue::fusion::LinCombDeEltAct<
-      LayoutC, cutlass::epilogue::thread::dGELU, cutlass::half_t, float, cutlass::half_t, void>;
-
-  using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
-      cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
-      TileShape_MNK, ClusterShape_MNK,
-      cutlass::epilogue::collective::EpilogueTileAuto,
-      float, float,
-      void, LayoutC, 8,
-      cutlass::half_t, LayoutC, 8,
-      EpilogueSchedule,
-      FusionOperation
-    >::CollectiveOp;
-
-  using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
-      cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
-      cutlass::half_t, LayoutA, 8,
-      cutlass::half_t, LayoutB, 8,
-      float,
-      TileShape_MNK, ClusterShape_MNK,
-      cutlass::gemm::collective::StageCountAutoCarveout<sizeof(typename CollectiveEpilogue::SharedStorage)>,
-      cutlass::gemm::KernelTmaWarpSpecializedCooperative
-    >::CollectiveOp;
-
-  using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
-      Shape<int,int,int,int>,
-      CollectiveMainloop,
-      CollectiveEpilogue
-  >;
-
-  using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
-  using namespace test::gemm::device; 
-  bool passed = TestAllBiasElementwise<Gemm>(1.0, 0.0, CheckEquality::RELATIVE);
   EXPECT_TRUE(passed);
 }
 

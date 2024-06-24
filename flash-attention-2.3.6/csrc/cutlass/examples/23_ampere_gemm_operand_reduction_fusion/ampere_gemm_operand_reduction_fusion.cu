@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -279,7 +279,7 @@ struct Options {
   /// Prints the usage statement.
   std::ostream & print_usage(std::ostream &out) const {
 
-    out << "23_ampere_operand_gemm_reduction_fusion\n\n"
+    out << "28_ampere_gemm_bias_fusion example\n\n"
       << "Options:\n\n"
       << "  --help               If specified, displays this usage statement.\n\n"
       << "  --m=<int>            GEMM M\n"
@@ -297,7 +297,7 @@ struct Options {
       << "  --tag=<string>       String to replicate across the first column in the results table\n";
 
     out << "\n\nExamples:\n\n"
-      << "$ ./examples/23_ampere_gemm_operand_reduction_fusion/23_ampere_gemm_operand_reduction_fusion  --m=1024 --n=1024 --k=1024 \n\n";
+      << "$ ./examples/23_ampere_gemm_bias_fusion_example/ampere_gemm_bias_fusion  --m=1024 --n=1024 --k=1024 \n\n";
 
     return out;
   }

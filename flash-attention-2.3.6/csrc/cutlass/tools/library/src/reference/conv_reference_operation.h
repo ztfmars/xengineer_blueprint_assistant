@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -45,7 +45,6 @@
 #include "cutlass/library/util.h"
 #include "library_internal.h"
 
-#include "cutlass/conv/convolution.h"
 #include "cutlass/util/reference/host/convolution.h"
 #include "cutlass/util/reference/device/convolution.h"
 
@@ -60,7 +59,7 @@ namespace detail {
 
 template <
   Provider kProvider,
-  cutlass::conv::Operator ConvolutionalOperator,
+  conv::Operator ConvolutionalOperator,
   int ConvDim,
   typename ElementA_,
   typename LayoutA_,
@@ -78,7 +77,7 @@ struct ConvReferenceDispatcher;
 /// Dispatcher for Conv2d (partially specialized for kConvDim == 2)
 template <
   Provider kProvider,
-  cutlass::conv::Operator kConvolutionalOperator,
+  conv::Operator kConvolutionalOperator,
   typename ElementA,
   typename LayoutA,
   typename ElementB,
@@ -194,7 +193,7 @@ struct ConvReferenceDispatcher<
 /// Dispatcher for Conv3d (partially specialized for kConvDim == 3)
 template <
   Provider kProvider,
-  cutlass::conv::Operator kConvolutionalOperator,
+  conv::Operator kConvolutionalOperator,
   typename ElementA,
   typename LayoutA,
   typename ElementB,
@@ -293,7 +292,7 @@ struct ConvReferenceDispatcher<
 
 template <
   Provider Provider_,
-  cutlass::conv::Operator ConvolutionalOperator,
+  conv::Operator ConvolutionalOperator,
   int ConvDim,
   typename ElementA_,
   typename LayoutA_,
@@ -309,7 +308,7 @@ template <
 class ConvReferenceOperation : public Operation {
 public:
   static Provider const kProvider = Provider_;
-  static cutlass::conv::Operator const kConvolutionalOperator = ConvolutionalOperator;
+  static conv::Operator const kConvolutionalOperator = ConvolutionalOperator;
   static int const kConvDim = ConvDim;
 
   using ElementA = ElementA_;
@@ -492,7 +491,7 @@ void make_conv_fprop(Manifest &manifest) {
   
   manifest.append(new ConvReferenceOperation<
     Provider::kReferenceHost,
-    cutlass::conv::Operator::kFprop,
+    conv::Operator::kFprop,
     kConvDim,
     ElementA_, LayoutA_,
     ElementB_, LayoutB_,
@@ -505,7 +504,7 @@ void make_conv_fprop(Manifest &manifest) {
 
   manifest.append(new ConvReferenceOperation<
     Provider::kReferenceDevice,
-    cutlass::conv::Operator::kFprop,
+    conv::Operator::kFprop,
     kConvDim,
     ElementA_, LayoutA_,
     ElementB_, LayoutB_,
@@ -535,7 +534,7 @@ void make_conv_backwards(Manifest &manifest) {
   
   manifest.append(new ConvReferenceOperation<
     Provider::kReferenceHost,
-    cutlass::conv::Operator::kDgrad,
+    conv::Operator::kDgrad,
     kConvDim,
     ElementA_, LayoutA_,
     ElementB_, LayoutB_,
@@ -548,7 +547,7 @@ void make_conv_backwards(Manifest &manifest) {
 
   manifest.append(new ConvReferenceOperation<
     Provider::kReferenceDevice,
-    cutlass::conv::Operator::kDgrad,
+    conv::Operator::kDgrad,
     kConvDim,
     ElementA_, LayoutA_,
     ElementB_, LayoutB_,
@@ -561,7 +560,7 @@ void make_conv_backwards(Manifest &manifest) {
 
   manifest.append(new ConvReferenceOperation<
     Provider::kReferenceHost,
-    cutlass::conv::Operator::kWgrad,
+    conv::Operator::kWgrad,
     kConvDim,
     ElementA_, LayoutA_,
     ElementB_, LayoutB_,
@@ -574,7 +573,7 @@ void make_conv_backwards(Manifest &manifest) {
 
   manifest.append(new ConvReferenceOperation<
     Provider::kReferenceDevice,
-    cutlass::conv::Operator::kWgrad,
+    conv::Operator::kWgrad,
     kConvDim,
     ElementA_, LayoutA_,
     ElementB_, LayoutB_,

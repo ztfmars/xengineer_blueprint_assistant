@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -93,7 +93,7 @@ struct Options {
   int mode = 1; // N-mode gather/scatter by default
 
   float alpha = 1.0f;
-  float beta  = 0.0f;
+  float beta = 1.0f;
 
   bool reference_check = true;
   int iterations = 20;
@@ -179,27 +179,19 @@ struct ExampleRunner
 {
   // Useful aliases
 
-  using ProblemShape = Shape<int,int,int,int>;
-
-  using StrideA = cutlass::gemm::TagToStrideA_t<LayoutA>;
-  using StrideB = cutlass::gemm::TagToStrideB_t<LayoutB>;
-  using StrideC = cutlass::gemm::TagToStrideC_t<LayoutC>;
-  using StrideD = cutlass::gemm::TagToStrideC_t<LayoutD>;
-
   // Alias to for the epilogue type that supports gather/scatter
-  using Epilogue = cutlass::epilogue::collective::detail::Sm90TmaWarpSpecializedAdapter<
-    cutlass::epilogue::collective::EpilogueGatherScatter<
-      StrideC, StrideD,
-      cutlass::epilogue::thread::LinearCombination<
-        ElementD, 1,
-        ElementAccumulator, ElementComputeEpilogue,
-        cutlass::epilogue::thread::ScaleType::Default,
-        cutlass::FloatRoundStyle::round_to_nearest, ElementC
-      >,
-      cutlass::gemm::EpilogueDefault,
-      GatherC,
-      ScatterD
-    >
+  using Epilogue = cutlass::epilogue::collective::EpilogueGatherScatter<
+    cutlass::gemm::TagToStrideC_t<LayoutC>,
+    cutlass::gemm::TagToStrideC_t<LayoutD>,
+    cutlass::epilogue::thread::LinearCombination<
+      ElementD, 1,
+      ElementAccumulator, ElementComputeEpilogue,
+      cutlass::epilogue::thread::ScaleType::Default,
+      cutlass::FloatRoundStyle::round_to_nearest, ElementC
+    >,
+    cutlass::gemm::EpilogueDefault,
+    GatherC,
+    ScatterD
   >;
 
   // Alias to for the mainloop type
@@ -210,20 +202,26 @@ struct ExampleRunner
     ElementAccumulator,
     Shape<_128,_128,_64>,
     Shape<_1,_1,_1>,
-    cutlass::gemm::collective::StageCountAuto,
-    cutlass::gemm::KernelCpAsyncWarpSpecialized
+    cutlass::gemm::collective::StageCount<5>,
+    cutlass::gemm::KernelMultistage
   >::CollectiveOp;
+
+  using ProblemShape = Shape<int,int,int,int>;
 
   using Kernel = cutlass::gemm::kernel::GemmGather<
     ProblemShape,
     Mainloop,
     Epilogue,
-    void,
     GatherA,
     GatherB
   >;
 
   using Gemm = cutlass::gemm::device::GemmUniversalAdapter<Kernel>;
+
+  using StrideA = typename Kernel::StrideA;
+  using StrideB = typename Kernel::StrideB;
+  using StrideC = typename Kernel::StrideC;
+  using StrideD = typename Kernel::StrideD;
 
   static constexpr bool DoGatherA  = not cutlass::platform::is_same<GatherA,  NoGather>::value;
   static constexpr bool DoGatherB  = not cutlass::platform::is_same<GatherB,  NoGather>::value;
@@ -252,19 +250,16 @@ struct ExampleRunner
 
   using MainloopRef = Mainloop;
 
-  using EpilogueRef = cutlass::epilogue::collective::detail::Sm90TmaWarpSpecializedAdapter<
-    cutlass::epilogue::collective::DefaultEpilogue<
-      StrideC, StrideD,
-      typename Epilogue::ThreadEpilogueOp,
-      typename Epilogue::EpilogueSchedule
-    >
+  using EpilogueRef = typename cutlass::epilogue::collective::DefaultEpilogue<
+    StrideC, StrideD,
+    typename Epilogue::ThreadEpilogueOp,
+    typename Epilogue::EpilogueSchedule
   >;
 
   using KernelRef = cutlass::gemm::kernel::GemmUniversal<
-    ProblemShape,
-    MainloopRef,
-    EpilogueRef,
-    void
+      ProblemShape,
+      MainloopRef,
+      EpilogueRef
   >;
 
   using GemmRef = cutlass::gemm::device::GemmUniversalAdapter<KernelRef>;
@@ -294,10 +289,9 @@ struct ExampleRunner
   >::CollectiveOp;
 
   using KernelOpt = cutlass::gemm::kernel::GemmUniversal<
-    ProblemShape,
-    MainloopOpt,
-    EpilogueOpt,
-    void
+      ProblemShape,
+      MainloopOpt,
+      EpilogueOpt
   >;
 
   using GemmOpt = cutlass::gemm::device::GemmUniversalAdapter<KernelOpt>;
@@ -410,7 +404,6 @@ struct ExampleRunner
         typename Epilogue::ScatterD{gather_indices.get()}
       },
       hw_info,
-      {},
       typename Kernel::GatherA{gather_indices.get()},
       typename Kernel::GatherB{gather_indices.get()}
     },
@@ -568,7 +561,7 @@ struct ExampleRunner
     if (options.reference_check) {
       if (!verify()) {
         std::cout << "Failed validation" << std::endl;
-#if 0
+#if 1
         debug_output(std::cout);
 #endif
         return false;

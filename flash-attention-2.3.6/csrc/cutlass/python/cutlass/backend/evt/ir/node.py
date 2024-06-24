@@ -1,6 +1,6 @@
 #################################################################################################
 #
-# Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,8 +37,7 @@ Base & visitor classes of DAGIR Nodes
 import ctypes
 from re import sub
 
-from cutlass_library import LayoutType
-
+from cutlass import LayoutType
 from cutlass.backend.evt.ir.layout_algorithm import _list_to_tuple, _reverse_tuple
 from cutlass.backend.evt.ir.tensor import Tensor
 

@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -108,16 +108,18 @@ struct CollectiveMma<
   using TransformB = TransformB_;
   using ArchTag = typename DispatchPolicy::ArchTag;
 
-  using MainloopPipeline = cutlass::PipelineTmaAsync<DispatchPolicy::Stages>;
+  using MainloopPipeline = cutlass::PipelineTmaAsync<
+                             DispatchPolicy::Stages,
+                             typename DispatchPolicy::ClusterShape>;
   using PipelineState = cutlass::PipelineState<DispatchPolicy::Stages>;
 
   using PipelineParams = typename MainloopPipeline::Params;
 
-  static_assert(cute::rank(SmemLayoutAtomA{}) == 2, "SmemLayoutAtom must be rank 2 (M/N, K)");
+  static_assert(rank(SmemLayoutAtomA{}) == 2, "SmemLayoutAtom must be rank 2 (M/N, K)");
   static_assert((size<0>(TileShape{}) % size<0>(SmemLayoutAtomA{})) == 0, "SmemLayoutAtom must evenly divide tile shape.");
   static_assert((size<2>(TileShape{}) % size<1>(SmemLayoutAtomA{})) == 0, "SmemLayoutAtom must evenly divide tile shape.");
 
-  static_assert(cute::rank(SmemLayoutAtomB{}) == 2, "SmemLayoutAtom must be rank 2 (M/N, K)");
+  static_assert(rank(SmemLayoutAtomB{}) == 2, "SmemLayoutAtom must be rank 2 (M/N, K)");
   static_assert((size<1>(TileShape{}) % size<0>(SmemLayoutAtomB{})) == 0, "SmemLayoutAtom must evenly divide tile shape.");
   static_assert((size<2>(TileShape{}) % size<1>(SmemLayoutAtomB{})) == 0, "SmemLayoutAtom must evenly divide tile shape.");
 
@@ -246,8 +248,8 @@ struct CollectiveMma<
   static constexpr int K_PIPE_MAX = DispatchPolicy::Stages;
   static constexpr int K_PIPE_MMAS = 1;
   static constexpr uint32_t TmaTransactionBytes =
-        (size<0>(SmemLayoutA{}) * size<1>(SmemLayoutA{}) * static_cast<uint32_t>(sizeof_bits<ElementA>::value)) / 8+
-        (size<0>(SmemLayoutB{}) * size<1>(SmemLayoutB{}) * static_cast<uint32_t>(sizeof_bits<ElementB>::value)) / 8;
+        (size<0>(SmemLayoutA{}) * size<1>(SmemLayoutA{}) * static_cast<uint32_t>(sizeof(ElementA)))+
+        (size<0>(SmemLayoutB{}) * size<1>(SmemLayoutB{}) * static_cast<uint32_t>(sizeof(ElementB)));
 
   /// Issue Tma Descriptor Prefetch -- ideally from a single thread for best performance
   CUTLASS_DEVICE
@@ -257,50 +259,31 @@ struct CollectiveMma<
     cute::prefetch_tma_descriptor(mainloop_params.tma_load_b.get_tma_descriptor());
   }
 
-  /// Set up the data needed by this collective for load and mma.
-  /// Returns a tuple of tensors. The collective and the kernel layer have the contract
-  /// Returned tuple must contain at least two elements, with the first two elements being:
-  /// gA_mkl - The tma tensor, A after a local tile so it has shape  (BLK_M,BLK_K,m,k,l)
-  /// gB_nkl - The tma tensor, B after a local tile so it has shape  (BLK_N,BLK_K,n,k,l)
-  template <class ProblemShape_MNKL>
-  CUTLASS_DEVICE auto
-  load_init(ProblemShape_MNKL const& problem_shape_MNKL, Params const& mainloop_params) const {
-    using X = Underscore;
-    // Separate out problem shape for convenience
-    auto [M,N,K,L] = problem_shape_MNKL;
-
-    // TMA requires special handling of strides to deal with coord codomain mapping
-    // Represent the full tensors -- get these from TMA
-    Tensor mA_mkl = mainloop_params.tma_load_a.get_tma_tensor(make_shape(M,K,L));                            // (m,k,l)
-    Tensor mB_nkl = mainloop_params.tma_load_b.get_tma_tensor(make_shape(N,K,L));                            // (n,k,l)
-
-    // Make tiled views, defer the slice
-    Tensor gA_mkl = local_tile(mA_mkl, TileShape{}, make_coord(_,_,_), Step<_1, X,_1>{});        // (BLK_M,BLK_K,m,k,l)
-    Tensor gB_nkl = local_tile(mB_nkl, TileShape{}, make_coord(_,_,_), Step< X,_1,_1>{});        // (BLK_N,BLK_K,n,k,l)
-
-    return cute::make_tuple(gA_mkl, gB_nkl);
-  }
-
   /// Perform a collective-scoped matrix multiply-accumulate
   /// Producer Perspective
   template <
-    class TensorA, class TensorB,
-    class KTileIterator, class BlockCoord
+    class TensorA, class TMA_LOAD_A,
+    class TensorB, class TMA_LOAD_B,
+    class KTileIterator
   >
   CUTLASS_DEVICE void
   load(
-      Params const& mainloop_params,
       MainloopPipeline pipeline,
       PipelineState smem_pipe_write,
-      cute::tuple<TensorA, TensorB> const& load_inputs,
-      BlockCoord const& blk_coord,
+      TensorA const& gA, TMA_LOAD_A& tma_load_a,
+      TensorB const& gB, TMA_LOAD_B& tma_load_b,
       KTileIterator k_tile_iter, int k_tile_count,
       int thread_idx,
       uint32_t block_rank_in_cluster,
-      TensorStorage& shared_tensors) {
+      TensorStorage& shared_tensors)
+  {
+
+    using namespace cute;
+    int warp_idx = canonical_warp_idx_sync();
+    int warp_idx_in_warp_group  = warp_idx % 4;
     int lane_predicate = cute::elect_one_sync();
 
-    if (lane_predicate) {
+    if (warp_idx_in_warp_group == 0 and lane_predicate) {
       Tensor sA = make_tensor(make_smem_ptr(shared_tensors.smem_A.data()), SmemLayoutA{});        // (BLK_M,BLK_K,PIPE)
       Tensor sB = make_tensor(make_smem_ptr(shared_tensors.smem_B.data()), SmemLayoutB{});        // (BLK_N,BLK_K,PIPE)
 
@@ -308,19 +291,11 @@ struct CollectiveMma<
       // Prepare the TMA loads for A and B
       //
 
-      constexpr uint32_t cluster_shape_x = get<0>(ClusterShape());
+      constexpr uint32_t cluster_shape_x = get<0>(DispatchPolicy::ClusterShape());
       uint2 cluster_local_block_id = {block_rank_in_cluster % cluster_shape_x, block_rank_in_cluster / cluster_shape_x};
 
-      Tensor gA_mkl = get<0>(load_inputs);
-      Tensor gB_nkl = get<1>(load_inputs);
-
-      auto block_tma_a = mainloop_params.tma_load_a.get_slice(cluster_local_block_id.y);
-      auto block_tma_b = mainloop_params.tma_load_b.get_slice(cluster_local_block_id.x);
-
-      // Partition the inputs based on the current block coordinates.
-      auto [m_coord, n_coord, k_coord, l_coord] = blk_coord;
-      Tensor gA = gA_mkl(_,_,m_coord,_,l_coord);                                        // (BLK_M,BLK_K,k)
-      Tensor gB = gB_nkl(_,_,n_coord,_,l_coord);                                        // (BLK_N,BLK_K,k)
+      auto block_tma_a = tma_load_a.get_slice(cluster_local_block_id.y);
+      auto block_tma_b = tma_load_b.get_slice(cluster_local_block_id.x);
 
       // Applies the mapping from block_tma_a
       Tensor tAgA = block_tma_a.partition_S(gA);                                                 // (TMA,TMA_M,TMA_K,k)
@@ -363,8 +338,8 @@ struct CollectiveMma<
         BarrierType* tma_barrier = pipeline.producer_get_barrier(smem_pipe_write);
 
         int write_stage = smem_pipe_write.index();
-        copy(mainloop_params.tma_load_a.with(*tma_barrier, mcast_mask_a), tAgA(_,_,_,*k_tile_iter), tAsA(_,_,_,write_stage));
-        copy(mainloop_params.tma_load_b.with(*tma_barrier, mcast_mask_b), tBgB(_,_,_,*k_tile_iter), tBsB(_,_,_,write_stage));
+        copy(tma_load_a.with(*tma_barrier, mcast_mask_a), tAgA(_,_,_,*k_tile_iter), tAsA(_,_,_,write_stage));
+        copy(tma_load_b.with(*tma_barrier, mcast_mask_b), tBgB(_,_,_,*k_tile_iter), tBsB(_,_,_,write_stage));
         ++k_tile_iter;
 
         // Advance smem_pipe_write
@@ -377,11 +352,14 @@ struct CollectiveMma<
   CUTLASS_DEVICE void
   load_tail(
       MainloopPipeline pipeline,
-      PipelineState smem_pipe_write) {
+      PipelineState smem_pipe_write)
+  {
+    int warp_idx = canonical_warp_idx_sync();
+    int warp_idx_in_warp_group = warp_idx % 4;
     int lane_predicate = cute::elect_one_sync();
 
     // Issue the epilogue waits
-    if (lane_predicate) {
+    if (warp_idx_in_warp_group == 0 and lane_predicate) {
       /* This helps avoid early exit of blocks in Cluster
        * Waits for all stages to either be released (all
        * Consumer UNLOCKs), or if the stage was never used
@@ -404,11 +382,13 @@ struct CollectiveMma<
       int k_tile_count,
       int thread_idx,
       TensorStorage& shared_tensors,
-      Params const& mainloop_params) {
+      Params const& mainloop_params)
+  {
+    using namespace cute;
 
     static_assert(is_rmem<FrgTensorC>::value, "C tensor must be rmem resident.");
-    static_assert(cute::rank(SmemLayoutA{}) == 3, "Smem layout must be rank 3.");
-    static_assert(cute::rank(SmemLayoutB{}) == 3, "Smem layout must be rank 3.");
+    static_assert(rank(SmemLayoutA{}) == 3, "Smem layout must be rank 3.");
+    static_assert(rank(SmemLayoutB{}) == 3, "Smem layout must be rank 3.");
     static_assert(cute::is_void_v<SmemCopyAtomA>,
       "SM90 GMMA mainloops cannot have a non-void copy atom for smem sourced instructions.");
     static_assert(cute::is_void_v<SmemCopyAtomB>,

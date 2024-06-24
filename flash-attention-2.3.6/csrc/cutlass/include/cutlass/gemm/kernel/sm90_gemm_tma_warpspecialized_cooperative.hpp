@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,7 +31,6 @@
 #pragma once
 
 #include "cutlass/cutlass.h"
-#include "cutlass/workspace.h"
 #include "cutlass/fast_math.h"
 #include "cutlass/kernel_hardware_info.hpp"
 #include "cute/arch/cluster_sm90.hpp"
@@ -44,6 +43,7 @@
 #include "cutlass/pipeline/pipeline.hpp"
 #include "cute/tensor.hpp"
 #include "cutlass/trace.h"
+
 ///////////////////////////////////////////////////////////////////////////////
 
 namespace cutlass::gemm::kernel {
@@ -68,8 +68,9 @@ public:
   // Type Aliases
   //
   using ProblemShape = ProblemShape_;
-  static_assert(cute::rank(ProblemShape{}) == 3 or cute::rank(ProblemShape{}) == 4,
+  static_assert(rank(ProblemShape{}) == 3 or rank(ProblemShape{}) == 4,
     "ProblemShape{} should be <M,N,K> or <M,N,K,L>");
+
   // Mainloop derived types
   using CollectiveMainloop = CollectiveMainloop_;
   using TileShape = typename CollectiveMainloop::TileShape;
@@ -103,8 +104,8 @@ public:
   using TileSchedulerParams = typename TileScheduler::Params;
 
   static constexpr uint32_t NumLoadWarpGroups = 1;
-  static constexpr uint32_t NumMmaWarpGroups = CUTE_STATIC_V(size(TiledMma{})) / NumThreadsPerWarpGroup;
-  static constexpr uint32_t MaxThreadsPerBlock = CUTE_STATIC_V(size(TiledMma{})) + (NumLoadWarpGroups * NumThreadsPerWarpGroup);
+  static constexpr uint32_t NumMmaWarpGroups = size(TiledMma{}) / NumThreadsPerWarpGroup;
+  static constexpr uint32_t MaxThreadsPerBlock = size(TiledMma{}) + (NumLoadWarpGroups * NumThreadsPerWarpGroup);
   static constexpr uint32_t MinBlocksPerMultiprocessor = 1;
 
   /// Register requirement for Load and Math WGs
@@ -186,33 +187,14 @@ public:
     CUTLASS_TRACE_HOST("to_underlying_arguments(): Setting persistent grid SM count to " << sm_count);
 
     KernelHardwareInfo hw_info{args.hw_info.device_id, sm_count};
-
-    // Calculate workspace pointers
-    uint8_t* workspace_ptr = reinterpret_cast<uint8_t*>(workspace);
-    size_t workspace_offset = 0;
-
-    void* scheduler_workspace = workspace_ptr;
-    workspace_offset += TileScheduler::template get_workspace_size<ProblemShape, ElementAccumulator>(
-      args.scheduler, args.problem_shape, args.hw_info, NumMmaWarpGroups);
-    workspace_offset = round_nearest(workspace_offset,  MinWorkspaceAlignment);
-
-    void* epilogue_workspace = workspace_ptr + workspace_offset;
-    workspace_offset += CollectiveEpilogue::get_workspace_size(args.problem_shape, args.epilogue);
-    workspace_offset = round_nearest(workspace_offset,  MinWorkspaceAlignment);
-
-    void* mainloop_workspace = nullptr;
-    // Precompute the sub tiles numbers in epilogue, pass into tile scheduler.  Therefore it will be used
-    // in separate reduction scheme for streamk case, NumEpilogueSubTiles default value is 1, which means
-    // subtile will not be used, therefore separate reduction will not be enabled.
-    constexpr uint32_t NumEpilogueSubTiles = CollectiveEpilogue::get_store_pipe_increment(TileShape{});
     TileSchedulerParams scheduler = TileScheduler::to_underlying_arguments(
-      problem_shape_MNKL, TileShape{}, ClusterShape{}, hw_info, args.scheduler, scheduler_workspace, NumEpilogueSubTiles);
+      problem_shape_MNKL, TileShape{}, ClusterShape{}, hw_info, args.scheduler, workspace);
 
     return {
       args.mode,
       problem_shape,
-      CollectiveMainloop::to_underlying_arguments(args.problem_shape, args.mainloop, mainloop_workspace),
-      CollectiveEpilogue::to_underlying_arguments(args.problem_shape, args.epilogue, epilogue_workspace),
+      CollectiveMainloop::to_underlying_arguments(args.problem_shape, args.mainloop, workspace),
+      CollectiveEpilogue::to_underlying_arguments(args.problem_shape, args.epilogue, workspace),
       hw_info,
       scheduler,
       workspace
@@ -223,56 +205,29 @@ public:
   bool
   can_implement(Arguments const& args) {
     bool implementable = (args.mode == GemmUniversalMode::kGemm) or
-        (args.mode == GemmUniversalMode::kBatched && cute::rank(ProblemShape{}) == 4);
+        (args.mode == GemmUniversalMode::kBatched && rank(ProblemShape{}) == 4);
     if (!implementable) {
       CUTLASS_TRACE_HOST("  CAN IMPLEMENT: Arguments or Problem Shape don't meet the requirements.\n");
       return implementable;
     }
     implementable &= CollectiveMainloop::can_implement(args.problem_shape, args.mainloop);
     implementable &= CollectiveEpilogue::can_implement(args.problem_shape, args.epilogue);
-    implementable &= TileScheduler::can_implement(args.scheduler);
     return implementable;
   }
 
-  static size_t
+  static int
   get_workspace_size(Arguments const& args) {
-    size_t workspace_size = 0;
-    constexpr uint32_t NumEpilogueSubTiles = CollectiveEpilogue::get_store_pipe_increment(TileShape{});
-
-    workspace_size += TileScheduler::template get_workspace_size<ProblemShape, ElementAccumulator>(
-      args.scheduler, args.problem_shape, args.hw_info, NumMmaWarpGroups, NumEpilogueSubTiles);
-    workspace_size = round_nearest(workspace_size,  MinWorkspaceAlignment);
-
-    workspace_size += CollectiveEpilogue::get_workspace_size(args.problem_shape, args.epilogue);
-    workspace_size = round_nearest(workspace_size,  MinWorkspaceAlignment);
-
-    return workspace_size;
+    TileScheduler t;
+    return t.template get_workspace_size<ProblemShape, ElementAccumulator>(
+      args.scheduler, args.problem_shape, args.hw_info, NumMmaWarpGroups);
   }
 
-  static cutlass::Status
+  static
+  cutlass::Status
   initialize_workspace(Arguments const& args, void* workspace = nullptr, cudaStream_t stream = nullptr) {
-    Status status = Status::kSuccess;
-    uint8_t* workspace_ptr = reinterpret_cast<uint8_t*>(workspace);
-    size_t workspace_offset = 0;
-    constexpr uint32_t NumEpilogueSubTiles = CollectiveEpilogue::get_store_pipe_increment(TileShape{});
-
-    status = TileScheduler::template initialize_workspace<ProblemShape, ElementAccumulator>(
-      args.scheduler, workspace_ptr + workspace_offset, stream, args.problem_shape, args.hw_info, NumMmaWarpGroups, NumEpilogueSubTiles);
-    workspace_offset += TileScheduler::template get_workspace_size<ProblemShape, ElementAccumulator>(
-      args.scheduler, args.problem_shape, args.hw_info, NumMmaWarpGroups, NumEpilogueSubTiles);
-    workspace_offset = round_nearest(workspace_offset,  MinWorkspaceAlignment);
-    if (status != Status::kSuccess) {
-      return status;
-    }
-
-    status = CollectiveEpilogue::initialize_workspace(args.problem_shape, args.epilogue, workspace_ptr + workspace_offset, stream);
-    workspace_offset += CollectiveEpilogue::get_workspace_size(args.problem_shape, args.epilogue);
-    workspace_offset = round_nearest(workspace_offset,  MinWorkspaceAlignment);
-    if (status != Status::kSuccess) {
-      return status;
-    }
-
-    return status;
+    TileScheduler t;
+    return t.template initialize_workspace<ProblemShape, ElementAccumulator>(
+      args.scheduler, workspace, stream, args.problem_shape, args.hw_info, NumMmaWarpGroups);
   }
 
   // Computes the kernel launch grid shape based on runtime parameters
@@ -298,20 +253,23 @@ public:
     using namespace cute;
     using X = Underscore;
 
-// Any Tensor Op MMA Atom in the WGMMA ISA is arch conditional to sm90a.
-#if ! defined(__CUDA_ARCH_FEAT_SM90_ALL)
-    printf("ERROR : Arch conditional MMA instruction used without targeting sm90a compute capability. Aborting.\n");
-#else
+    // Any Tensor Op MMA Atom in the WGMMA ISA is arch conditional to sm90a.
+    #if ! defined(__CUDA_ARCH_FEAT_SM90_ALL)
+      if constexpr(size<0>(typename TiledMma::AtomShape_MNK{}) == 64) {
+        printf("ERROR : Arch conditional MMA instruction used without targeting sm90a compute capability. Aborting.\n");
+        return;
+      }
+    #endif
 
     // Preconditions
     static_assert(size(TiledMma{}) == 256, "Cooperative kernel must have TiledMMA operating using 256 threads.");
     static_assert(size<0>(TileShape{}) >= 128,
         "Cooperative kernel requires Tile Size to be greater than or equal to 128 along the M-dimension.");
 
-    static_assert(cute::rank(StrideA{}) == 3, "StrideA must be rank-3: [M, K, L]. If batch mode is not needed, set L stride to Int<0>.");
-    static_assert(cute::rank(StrideB{}) == 3, "StrideB must be rank-3: [N, K, L]. If batch mode is not needed, set L stride to Int<0>.");
-    static_assert(cute::rank(StrideC{}) == 3, "StrideC must be rank-3: [M, N, L]. If batch mode is not needed, set L stride to Int<0>.");
-    static_assert(cute::rank(StrideD{}) == 3, "StrideD must be rank-3: [M, N, L]. If batch mode is not needed, set L stride to Int<0>.");
+    static_assert(rank(StrideA{}) == 3, "StrideA must be rank-3: [M, K, L]. If batch mode is not needed, set L stride to Int<0>.");
+    static_assert(rank(StrideB{}) == 3, "StrideB must be rank-3: [N, K, L]. If batch mode is not needed, set L stride to Int<0>.");
+    static_assert(rank(StrideC{}) == 3, "StrideC must be rank-3: [M, N, L]. If batch mode is not needed, set L stride to Int<0>.");
+    static_assert(rank(StrideD{}) == 3, "StrideD must be rank-3: [M, N, L]. If batch mode is not needed, set L stride to Int<0>.");
 
     /* In the Cooperative kernel, Consumer0 and Consumer1 collaborate on the same tile */
     enum class WarpGroupRole {
@@ -358,7 +316,7 @@ public:
     mainloop_pipeline_params.is_leader = warp_group_thread_idx == 0;
     mainloop_pipeline_params.num_consumers = size(TiledMma{});
     mainloop_pipeline_params.transaction_bytes = CollectiveMainloop::TmaTransactionBytes;
-    MainloopPipeline mainloop_pipeline(shared_storage.pipelines.mainloop, mainloop_pipeline_params, ClusterShape{});
+    MainloopPipeline mainloop_pipeline(shared_storage.pipelines.mainloop, mainloop_pipeline_params);
 
     // Epilogue Load pipeline
     using EpiLoadPipeline = typename CollectiveEpilogue::LoadPipeline;
@@ -397,7 +355,7 @@ public:
     PipelineState epi_load_pipe_producer_state = cutlass::make_producer_start_state<EpiLoadPipeline>();
     PipelineState epi_store_pipe_producer_state = cutlass::make_producer_start_state<EpiStorePipeline>();
 
-    auto cluster_wait_fn = [] () {
+    auto cluster_wait_fn = [&] () {
       // We need this to guarantee that the Pipeline init is visible
       // To all producers and consumer thread blocks in the Cluster
       if constexpr (size(ClusterShape{}) > 1) {
@@ -410,12 +368,29 @@ public:
       }
     } ();
 
-    // Optionally append 1s until problem shape is rank-4 in case it is only rank-3 (MNK)
+    // Separate out problem shape for convenience
+    // Optionally append 1s until problem shape is rank-4 in case its is only rank-3 (MNK)
     auto problem_shape_MNKL = append<4>(params.problem_shape, Int<1>{});
+    auto M = get<0>(problem_shape_MNKL);
+    auto N = get<1>(problem_shape_MNKL);
+    auto K = get<2>(problem_shape_MNKL);
+    auto L = get<3>(problem_shape_MNKL);
+
+    // TMA requires special handling of strides to deal with coord codomain mapping
+    // Represent the full tensors -- get these from TMA
+    Tensor mA_mkl = params.mainloop.tma_load_a.get_tma_tensor(make_shape(M,K,L));                            // (m,k,l)
+    Tensor mB_nkl = params.mainloop.tma_load_b.get_tma_tensor(make_shape(N,K,L));                            // (n,k,l)
 
     // Get the appropriate blocks for this thread block -- potential for thread block locality
     TiledMma tiled_mma;
     auto blk_shape = TileShape{};                                                                // (BLK_M,BLK_N,BLK_K)
+
+    // Make tiled views, defer the slice
+    Tensor gA_mkl = local_tile(mA_mkl, blk_shape, make_coord(_,_,_), Step<_1, X,_1>{});          // (BLK_M,BLK_K,m,k,l)
+    Tensor gB_nkl = local_tile(mB_nkl, blk_shape, make_coord(_,_,_), Step< X,_1,_1>{});          // (BLK_N,BLK_K,n,k,l)
+
+    // Get pipeline stage increments from tensor shapes
+    auto k_tile_count = size<3>(gA_mkl);
 
     TileScheduler scheduler{params.scheduler};
     auto work_tile_info = scheduler.get_current_work();
@@ -423,19 +398,6 @@ public:
     // In a warp specialized kernel, collectives expose data movement and compute operations separately
     CollectiveMainloop collective_mainloop;
     CollectiveEpilogue collective_epilogue(params.epilogue, shared_storage.tensors.epilogue);
-
-    // Prepare and partition the input tensors. Expects a tuple of tensors where:
-    // get<0>(load_inputs) is the tma tensor A after local tiling so that it has shape (BLK_M,BLK_K,m,k,l)
-    // get<1>(load_inputs) is the tma tensor B after local tiling so that it has shape (BLK_N,BLK_K,n,k,l)
-    auto load_inputs = collective_mainloop.load_init(problem_shape_MNKL, params.mainloop);
-    static_assert(cute::tuple_size_v<decltype(load_inputs)> >= 2, "Output of load_init must have at least two elements (A, B)");
-
-    // Extract out partitioned A and B.
-    Tensor gA_mkl = get<0>(load_inputs);
-    Tensor gB_nkl = get<1>(load_inputs);
-
-    // Get pipeline stage increments from tensor shapes
-    auto k_tile_count = size<3>(gA_mkl);
 
     // Wait for all thread blocks in the Cluster
     cluster_wait_fn();
@@ -446,29 +408,27 @@ public:
       // Mainloop Producer Warp
       if (producer_warp_role == ProducerWarpRole::Mainloop) {
         bool do_load_order_arrive = true;
-        while (work_tile_info.is_valid()) {
-          if (!TileScheduler::valid_warpgroup_in_work_tile(work_tile_info)) {
-            work_tile_info = fetch_next_work(work_tile_info, scheduler);
-            continue;
-          }
-
+        while (work_tile_info.is_valid_tile) {
           // Compute m_coord, n_coord, l_coord with the post-tiled m-shape and n-shape
           auto m_coord = idx2crd(work_tile_info.M_idx, shape<2>(gA_mkl));
           auto n_coord = idx2crd(work_tile_info.N_idx, shape<2>(gB_nkl));
           auto l_coord = idx2crd(work_tile_info.L_idx, shape<4>(gB_nkl));
           auto blk_coord = make_coord(m_coord, n_coord, _, l_coord);
 
+          // Slice with our work tile coordinates to construct mainloop tensor views
+          Tensor gA = gA_mkl(_,_,m_coord,_,l_coord);                                        // (BLK_M,BLK_K,k)
+          Tensor gB = gB_nkl(_,_,n_coord,_,l_coord);                                        // (BLK_N,BLK_K,k)
+
           // Get the number of K tiles to compute for this work as well as the starting K tile offset of the work.
           auto work_k_tile_count = TileScheduler::get_work_k_tile_count(work_tile_info, problem_shape_MNKL, blk_shape);
           auto work_k_tile_start = TileScheduler::get_work_k_tile_start(work_tile_info);
-          auto k_tile_iter = cute::make_coord_iterator(idx2crd(work_k_tile_start, shape<3>(gA_mkl)), shape<3>(gA_mkl));
+          auto k_tile_iter = cute::make_coord_iterator(idx2crd(work_k_tile_start, shape<2>(gA)), shape<2>(gA));
 
           collective_mainloop.load(
-            params.mainloop,
             mainloop_pipeline,
             mainloop_pipe_producer_state,
-            load_inputs,
-            blk_coord,
+            gA, params.mainloop.tma_load_a,
+            gB, params.mainloop.tma_load_b,
             k_tile_iter, work_k_tile_count,
             lane_idx,
             block_rank_in_cluster,
@@ -493,11 +453,9 @@ public:
 
       // Epilogue Producer Warp
       else if (producer_warp_role == ProducerWarpRole::Epilogue && collective_epilogue.is_producer_load_needed()) {
-        while (work_tile_info.is_valid()) {
-          if (!TileScheduler::requires_separate_reduction(params.scheduler)) {
-            load_order_barrier.wait();
-          }
-          if (TileScheduler::compute_epilogue(work_tile_info, params.scheduler)) {
+        load_order_barrier.wait();
+        while (work_tile_info.is_valid_tile) {
+          if (TileScheduler::compute_epilogue(work_tile_info)) {
             // Compute m_coord, n_coord, l_coord with the post-tiled m-shape and n-shape
             auto m_coord = idx2crd(work_tile_info.M_idx, shape<2>(gA_mkl));
             auto n_coord = idx2crd(work_tile_info.N_idx, shape<2>(gB_nkl));
@@ -513,8 +471,7 @@ public:
               blk_coord,
               tiled_mma,
               lane_idx,
-              shared_storage.tensors.epilogue,
-              work_tile_info.reduction_subtile_idx()
+              shared_storage.tensors.epilogue
             );
           }
 
@@ -532,7 +489,7 @@ public:
 
       // Do we potentially issue tail arrives for TMA stores, if epilogue load is waiting for it
       bool do_store_tail = false;
-      while (work_tile_info.is_valid()) {
+      while (work_tile_info.is_valid_tile) {
         // Compute m_coord, n_coord, l_coord with the post-tiled m-shape and n-shape
         auto m_coord = idx2crd(work_tile_info.M_idx, shape<2>(gA_mkl));
         auto n_coord = idx2crd(work_tile_info.N_idx, shape<2>(gB_nkl));
@@ -540,31 +497,31 @@ public:
         auto blk_coord = make_coord(m_coord, n_coord, _, l_coord);
         auto work_k_tile_count = TileScheduler::get_work_k_tile_count(work_tile_info, problem_shape_MNKL, blk_shape);
 
-        // Allocate the accumulators for the (M,N) blk_shape
+        // Allocate the the accumulators for the (M,N) blk_shape
         //
         // MSVC CTAD breaks if we say "Tensor" here, so we use "auto" instead.
         auto accumulators = partition_fragment_C(tiled_mma, take<0,2>(blk_shape));               // (MMA,MMA_M,MMA_N)
-        if(TileScheduler::valid_warpgroup_in_work_tile(work_tile_info)) {
-          collective_mainloop.mma(
-            mainloop_pipeline,
-            mainloop_pipe_consumer_state,
-            accumulators,
-            work_k_tile_count,
-            mma_thread_idx,
-            shared_storage.tensors.mainloop,
-            params.mainloop
-          );
 
-          // Make sure the math instructions are done and free buffers before entering the epilogue
-          collective_mainloop.mma_tail(
-            mainloop_pipeline,
-            mainloop_pipe_consumer_state,
-            work_k_tile_count
-          );
+        collective_mainloop.mma(
+          mainloop_pipeline,
+          mainloop_pipe_consumer_state,
+          accumulators,
+          work_k_tile_count,
+          mma_thread_idx,
+          shared_storage.tensors.mainloop,
+          params.mainloop
+        );
 
-          // Update starting mainloop pipeline state for the next tile
-          mainloop_pipe_consumer_state.advance(work_k_tile_count);
-        }
+        // Make sure the math instructions are done and free buffers before entering the epilogue
+        collective_mainloop.mma_tail(
+          mainloop_pipeline,
+          mainloop_pipe_consumer_state,
+          work_k_tile_count
+        );
+
+        // Update starting mainloop pipeline state for the next tile
+        mainloop_pipe_consumer_state.advance(work_k_tile_count);
+
         // Index of warp group within consumer warp groups
         int consumer_warp_group_idx = canonical_warp_group_idx() - NumLoadWarpGroups;
 
@@ -572,7 +529,7 @@ public:
         TileScheduler::fixup(
           params.scheduler, work_tile_info, accumulators, NumMmaWarpGroups, consumer_warp_group_idx);
 
-        if (TileScheduler::compute_epilogue(work_tile_info, params.scheduler)) {
+        if (TileScheduler::compute_epilogue(work_tile_info)) {
           // Epilogue and write to gD
           auto [epi_load_pipe_consumer_state_next, epi_store_pipe_producer_state_next] =
           collective_epilogue.store(
@@ -586,8 +543,7 @@ public:
             accumulators,
             tiled_mma,
             mma_thread_idx,
-            shared_storage.tensors.epilogue,
-            work_tile_info.reduction_subtile_idx()
+            shared_storage.tensors.epilogue
           );
           epi_load_pipe_consumer_state = epi_load_pipe_consumer_state_next;
           epi_store_pipe_producer_state = epi_store_pipe_producer_state_next;
@@ -607,7 +563,6 @@ public:
         );
       }
     } // Consumer Warp Groups End
-#endif
   }
 
 private:

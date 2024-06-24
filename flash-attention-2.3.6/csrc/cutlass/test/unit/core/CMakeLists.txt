@@ -1,4 +1,4 @@
-# Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -41,7 +41,6 @@ cutlass_test_unit_add_executable(
   tensor_view.cu
   matrix_coord.cu
   numeric_conversion.cu
-  fast_numeric_conversion.cu
   functional.cu
   )
 
@@ -64,10 +63,3 @@ add_executable(
   cpp11.cu
 )
 
-if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  target_compile_options(
-    cutlass_test_unit_core_cpp11
-    PRIVATE
-    $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler -Werror>
-  )
-endif()

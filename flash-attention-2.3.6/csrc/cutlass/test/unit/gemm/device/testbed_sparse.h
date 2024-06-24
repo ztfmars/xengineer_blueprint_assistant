@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -163,14 +163,19 @@ struct SparseTestbed {
   }
 
   /// Initializes data structures
-  void initialize(cutlass::gemm::GemmCoord problem_size) {
+  void initialize(cutlass::gemm::GemmCoord problem_size, bool tensor_C_row_broadcast = false) {
     //
     // Allocate the GEMM workspace
     //
     tensor_A.resize(cutlass::make_Coord(problem_size.m(), problem_size.k() / kSparse));
     tensor_A_uncompressed.resize(problem_size.mk());
     tensor_B.resize(problem_size.kn());
-    tensor_C.resize(problem_size.mn());
+    if (tensor_C_row_broadcast) {
+      tensor_C.resize({problem_size.m(), 1});
+    } else {
+      tensor_C.resize(problem_size.mn());
+    }
+
     tensor_D.resize(problem_size.mn());
     reference_D.resize(problem_size.mn(), false);
     tensor_E.resize(cutlass::make_Coord(
@@ -204,7 +209,13 @@ struct SparseTestbed {
     tensor_B.host_view().at({0, 0}) = typename Gemm::ElementB(1);
     tensor_C.host_view().at({0, 0}) = typename Gemm::ElementC(1);
 
-    cutlass::reference::host::TensorCopy(reference_D.host_view(), tensor_C.host_view());
+    if (tensor_C_row_broadcast) {
+      for (int i = 0; i < problem_size.m(); ++i)
+        for (int j = 0; j < problem_size.n(); ++j)
+          reference_D.host_view().at({i, j}) = tensor_C.host_view().at({i, 0});
+    } else {
+      cutlass::reference::host::TensorCopy(reference_D.host_view(), tensor_C.host_view());
+    }
 
     tensor_A.sync_device();
     tensor_B.sync_device();
@@ -336,7 +347,8 @@ struct SparseTestbed {
     cutlass::gemm::GemmCoord problem_size, 
     int split_k_slices = 1,
     ElementCompute alpha = ElementCompute(1), 
-    ElementCompute beta = ElementCompute(0)) {
+    ElementCompute beta = ElementCompute(0),
+    bool tensor_C_row_broadcast = false) {
 
     // Waive test if insufficient CUDA device
     if (!sufficient()) {
@@ -346,7 +358,7 @@ struct SparseTestbed {
       return true;
     }
 
-    this->initialize(problem_size);
+    this->initialize(problem_size, tensor_C_row_broadcast);
 
     //
     // Initialize the GEMM operator
@@ -401,7 +413,7 @@ struct SparseTestbed {
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
 template <typename Gemm>
-bool TestAllSparseGemm() {
+bool TestAllSparseGemm(bool tensor_C_row_broadcast = false) {
   bool passed = true;
 
   int const kMinimumOperandElementSize = 
@@ -461,7 +473,8 @@ bool TestAllSparseGemm() {
                 problem_size, 
                 split_k,
                 cutlass::from_real<ElementCompute>(alpha), 
-                cutlass::from_real<ElementCompute>(beta)
+                cutlass::from_real<ElementCompute>(beta),
+                tensor_C_row_broadcast
               );
 
               if (!passed) {

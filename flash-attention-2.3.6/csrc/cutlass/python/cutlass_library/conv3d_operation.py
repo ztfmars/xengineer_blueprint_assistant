@@ -1,6 +1,6 @@
 #################################################################################################
 #
-# Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -38,13 +38,7 @@ import enum
 import os.path
 import shutil
 
-try:
-  import builtins
-  if hasattr(builtins, "CUTLASS_IGNORE_PACKAGE") and CUTLASS_IGNORE_PACKAGE == True:
-    raise ImportError("Disabling attempt to import cutlass_library")
-  from cutlass_library.library import *
-except ImportError:
-  from library import *
+from cutlass_library.library import *
 
 ###################################################################################################
 
@@ -66,10 +60,6 @@ class Conv3dOperation:
     self.iterator_algorithm = iterator_algorithm
     self.stride_support = stride_support
     self.swizzling_functor = swizzling_functor
-
-  #
-  def is_mixed_input(self):
-    return self.A.element != self.B.element
 
   #
   def core_name(self):

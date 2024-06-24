@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -43,7 +43,7 @@ namespace cutlass {
 
 __global__ void rmsnorm_twoPassAlgo_e8(float4 *output, const float4 *input,
 				       const float4 *weight,
-				       const int m, const int n, float epsilon) {
+				       const int m, const int n) {
   const int m_idx = blockIdx.x;
   const int tid = threadIdx.x;
   const int bdimx = blockDim.x;
@@ -76,7 +76,7 @@ __global__ void rmsnorm_twoPassAlgo_e8(float4 *output, const float4 *input,
     blockReduceSum<float, 1>(local_sums);
   }
   if (threadIdx.x == 0) {
-    s_mean = rsqrtf(local_sums[0] / n + epsilon);
+    s_mean = rsqrtf(local_sums[0] / n + 1e-6);
   }
   __syncthreads();
 
@@ -98,7 +98,7 @@ __global__ void rmsnorm_twoPassAlgo_e8(float4 *output, const float4 *input,
     half2 *h1 = (half2 *)&tmp.x;
     half2 *h2 = (half2 *)&tmp.y;
     half2 *h3 = (half2 *)&tmp.z;
-    half2 *h4 = (half2 *)&tmp.w;
+    half4 *h4 = (half4 *)&tmp.w;
 
     h1->x = half(static_cast<float>(l1->x) * s_mean * static_cast<float>(g1->x));
     h1->y = half(static_cast<float>(l1->y) * s_mean * static_cast<float>(g1->y));
@@ -117,8 +117,7 @@ template<typename T>
 __global__ void rmsnorm_twoPassAlgo_e1(T* output,
 				       const T* input,
 				       const T* weight,
-				       const int m, const int n,
-                                       float epsilon)
+				       const int m, const int n)
 {
   const int m_idx = blockIdx.x;
   const int tid = threadIdx.x;
@@ -140,7 +139,7 @@ __global__ void rmsnorm_twoPassAlgo_e1(T* output,
     blockReduceSum<float, 1>(local_sums);
   }
   if (threadIdx.x == 0) {
-    s_mean = rsqrtf(local_sums[0] / n + epsilon);
+    s_mean = rsqrtf(local_sums[0] / n + 1e-6);
   }
   __syncthreads();
 
@@ -156,7 +155,7 @@ void rmsnorm(cutlass::MatrixCoord tensor_size,
              TensorRef<T, layout::RowMajor> ref_output,
              TensorRef<T, layout::RowMajor> ref_input,
              TensorRef<T, layout::RowMajor> ref_weight,
-             cudaStream_t stream, float epsilon = 1e-5){
+             cudaStream_t stream){
   const int m = tensor_size.row();
   const int n = tensor_size.column();
   T* output = ref_output.data();
@@ -168,12 +167,12 @@ void rmsnorm(cutlass::MatrixCoord tensor_size,
     dim3 block(min(1024, (n / 8 + 31) / 32 * 32));
 
     rmsnorm_twoPassAlgo_e8<<<grid, block, 0, stream>>>(
-        (float4 *)output, (const float4 *)input, (const float4 *)weight, m, n, epsilon);
+        (float4 *)output, (const float4 *)input, (const float4 *)weight, m, n);
   } else {
     dim3 block(min(1024, ((n + 31)/32 + 31)/32*32));
 
     rmsnorm_twoPassAlgo_e1<<<grid, block, 0, stream>>>(
-        output, input, weight, m, n, epsilon);
+        output, input, weight, m, n);
   }
 
   auto result = cudaGetLastError();

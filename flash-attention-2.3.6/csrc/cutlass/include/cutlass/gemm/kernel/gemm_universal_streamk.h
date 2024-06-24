@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -357,17 +357,14 @@ public:
 
       // Initialize the block mapping structure
       block_mapping = ThreadblockSwizzle(
+        typename ThreadblockSwizzle::template KernelTraits<GemmUniversalStreamk>(),
         args.mode,
         args.problem_size,
         {ThreadblockShape::kM, ThreadblockShape::kN, ThreadblockShape::kK},
         args.batch_count,
         sm_occupancy,
         device_sms,
-        avail_sms,
-        sizeof(ElementA),
-        sizeof(ElementB),
-        sizeof(ElementC),
-        Epilogue::kAccumulatorFragments);
+        avail_sms);
     }
 
 
@@ -665,7 +662,7 @@ protected:
 
     int m_begin = tile_work.tiled_coord.m() * Mma::Shape::kM;
     int m_end = params.block_mapping.problem_size.m();
-    return typename Mma::IteratorA(
+    return Mma::IteratorA(
         params.params_A,
         ptr_A,
         { m_end, tile_work.k_end },
@@ -694,7 +691,7 @@ protected:
 
     int n_begin = tile_work.tiled_coord.n() * Mma::Shape::kN;
     int n_end = params.block_mapping.problem_size.n();
-    return typename Mma::IteratorB(
+    return Mma::IteratorB(
         params.params_B,
         ptr_B,
         { tile_work.k_end, n_end },

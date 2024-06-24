@@ -1,6 +1,6 @@
 #################################################################################################
 #
-# Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -51,9 +51,7 @@
         plan.run([A0, A1], [B0, B1], [C0, C1], [D0, D1])
 """
 
-from cutlass_library import DataTypeSize
-
-from cuda import cuda
+from cutlass import DataTypeSize
 from cutlass.backend.gemm_operation import (
     GemmGroupedArguments,
     GemmOperationGrouped,
@@ -164,9 +162,10 @@ class GroupedGemm(Gemm):
         :return: operation that was constructed
         :rtype: cutlass.backend.GemmOperationGrouped
         """
-        alignment_A = check.alignment_or_default(alignment_A, max(self.possible_operations.alignments("A")))
-        alignment_B = check.alignment_or_default(alignment_B, max(self.possible_operations.alignments("B")))
-        alignment_C = check.alignment_or_default(alignment_C, max(self.possible_operations.alignments("C")))
+        alignment_preference = max(self.possible_operations.alignments)
+        alignment_A = check.alignment_or_default(alignment_A, alignment_preference)
+        alignment_B = check.alignment_or_default(alignment_B, alignment_preference)
+        alignment_C = check.alignment_or_default(alignment_C, alignment_preference)
 
         self.epilogue_functor = self._reset_epilogue_functor_alignment(alignment_C, self.epilogue_functor)
 
@@ -175,7 +174,7 @@ class GroupedGemm(Gemm):
         tensor_C = TensorDescription(self._element_c, self._layout_c, alignment_C)
 
         if tile_description is None:
-            op = self.possible_operations.operations(alignment_A, alignment_B, alignment_C, self._math_operation)[0]
+            op = self.possible_operations.operations(alignment_A)[0]
             tile_description = datatypes.td_from_profiler_op(op)
         else:
             valid, err_str = self._valid_tile_description(tile_description)
@@ -195,8 +194,7 @@ class GroupedGemm(Gemm):
 
     def run(self, A, B, C, D,
             alpha=None, beta=None, sync: bool = True,
-            print_module: bool = False,
-            stream: cuda.CUstream = cuda.CUstream(0)) -> GemmGroupedArguments:
+            print_module: bool = False) -> GemmGroupedArguments:
         """
         Runs the kernel currently specified.
 
@@ -219,14 +217,10 @@ class GroupedGemm(Gemm):
         :type sync: bool
         :param print_module: whether to print the emitted C++ code
         :type print_module: bool
-        :param stream: cuda stream, defaults to cuda.cuda.CUstream(0)
-        :type stream: :class:`cuda.cuda.CUstream`
 
         :return: arguments passed in to the kernel
         :rtype: cutlass.backend.GemmGroupedArguments
         """
-        super().run_setup()
-
         if len(A) != len(B) or len(A) != len(C) or len(A) != len(D):
             raise Exception("Lengths of A, B, C, and D lists must be equal")
 
@@ -242,9 +236,9 @@ class GroupedGemm(Gemm):
         alpha = self._verify_scalar(alpha, self.alpha, self._element_c, "alpha")
         beta = self._verify_scalar(beta, self.beta, self._element_c, "beta")
 
-        alignment_a = min((self.possible_operations.find_alignment(A.shape, self._layout_a, operand="A") for A in As))
-        alignment_b = min((self.possible_operations.find_alignment(B.shape, self._layout_b, operand="B") for B in Bs))
-        alignment_c = min((self.possible_operations.find_alignment(C.shape, self._layout_c, operand="C") for C in Cs))
+        alignment_a = min((self.possible_operations.find_alignment(A.shape, self._layout_a) for A in As))
+        alignment_b = min((self.possible_operations.find_alignment(B.shape, self._layout_b) for B in Bs))
+        alignment_c = min((self.possible_operations.find_alignment(C.shape, self._layout_c) for C in Cs))
         self.compile(self.tile_description, alignment_A=alignment_a, alignment_B=alignment_b,
                      alignment_C=alignment_c, print_module=print_module)
 
@@ -252,8 +246,7 @@ class GroupedGemm(Gemm):
             operation=self.operation,
             problem_sizes=problem_sizes,
             A=As, B=Bs, C=Cs, D=Ds,
-            output_op=self.operation.epilogue_type(alpha, beta),
-            stream=stream
+            output_op=self.operation.epilogue_type(alpha, beta)
         )
 
         self.operation.run(arguments)

@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -97,7 +97,7 @@ template <class T, class U,
           __CUTE_REQUIRES(is_std_integral<T>::value &&
                           is_std_integral<U>::value)>
 CUTE_HOST_DEVICE constexpr
-cute::common_type_t<T, U>
+auto
 gcd(T t, U u) {
   while (true) {
     if (t == 0) { return u; }
@@ -112,7 +112,7 @@ template <class T, class U,
           __CUTE_REQUIRES(is_std_integral<T>::value &&
                           is_std_integral<U>::value)>
 CUTE_HOST_DEVICE constexpr
-cute::common_type_t<T, U>
+auto
 lcm(T const& t, U const& u) {
   return (t / gcd(t,u)) * u;
 }
@@ -130,8 +130,6 @@ has_single_bit(T x) {
 }
 
 // Smallest number of bits needed to represent the given value
-//   For x == 0, this is 0
-//   For x != 0, this is 1 + floor(log2(x))
 // bit_width( 0b0000 ) = 0
 // bit_width( 0b0001 ) = 1
 // bit_width( 0b0010 ) = 2
@@ -205,7 +203,7 @@ CUTE_HOST_DEVICE constexpr
 T
 rotl(T x, int s) {
   constexpr int N = numeric_limits<T>::digits;
-  return static_cast<T>(s == 0 ? x : s > 0 ? (x << s) | (x >> (N - s)) : rotr(x, -s));
+  return s == 0 ? x : s > 0 ? (x << s) | (x >> (N - s)) : rotr(x, -s);
 }
 
 // Computes the result of circular bitwise right-rotation
@@ -214,7 +212,7 @@ CUTE_HOST_DEVICE constexpr
 T
 rotr(T x, int s) {
   constexpr int N = numeric_limits<T>::digits;
-  return static_cast<T>(s == 0 ? x : s > 0 ? (x >> s) | (x << (N - s)) : rotl(x, -s));
+  return s == 0 ? x : s > 0 ? (x >> s) | (x << (N - s)) : rotl(x, -s);
 }
 
 // Counts the number of consecutive 0 bits, starting from the most significant bit
@@ -308,19 +306,6 @@ auto
 safe_div(T const& t, U const& u) {
   //assert(t % u == 0);
   return t / u;
-}
-
-/**
- * log2 computation
- */
-
-template <class T>
-CUTE_HOST_DEVICE constexpr
-auto
-log_2(T x) {
-  assert(x > 0);
-  static_assert(is_unsigned<T>::value, "Only to be used for unsigned integral types.");
-  return bit_width(x) - 1;
 }
 
 } // namespace cute

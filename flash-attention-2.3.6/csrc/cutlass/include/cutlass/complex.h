@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,16 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  **************************************************************************************************/
-/*
-  Note:  CUTLASS 3x increases the host compiler requirements to C++17. However, certain
-         existing integrations of CUTLASS require C++11 host compilers.
-
-         Until this requirement can be lifted, certain headers with this annotation are required
-         to be remain consistent with C++11 syntax.
-
-         C++11 compatibility is enforced by this unit test: `cutlass_test_unit_core_cpp11`.
-*/
-
 #pragma once
 
 #include <cuComplex.h>
@@ -52,9 +42,11 @@
 
 #include "cutlass/cutlass.h"
 #include "cutlass/functional.h"
+#include "cutlass/half.h"
 #include "cutlass/real.h"
 
-#include "cutlass/numeric_types.h"
+#include "cutlass/bfloat16.h"
+#include "cutlass/tfloat32.h"
 
 #include "cutlass/fast_math.h"
 
@@ -470,14 +462,6 @@ CUTLASS_HOST_DEVICE uint32_t conj(uint32_t const& z) {
   return z;
 }
 
-CUTLASS_HOST_DEVICE int64_t conj(int64_t const& z) {
-  return z;
-}
-
-CUTLASS_HOST_DEVICE uint64_t conj(uint64_t const& z) {
-  return z;
-}
-
 CUTLASS_HOST_DEVICE int4b_t conj(int4b_t const& z) {
   return z;
 }
@@ -497,15 +481,6 @@ CUTLASS_HOST_DEVICE uint1b_t conj(uint1b_t const& z) {
 CUTLASS_HOST_DEVICE tfloat32_t conj(tfloat32_t const& z) {
   return z;
 }
-
-CUTLASS_HOST_DEVICE float_e4m3_t conj(float_e4m3_t const& z) {
-  return z;
-}
-
-CUTLASS_HOST_DEVICE float_e5m2_t conj(float_e5m2_t const& z) {
-  return z;
-}
-
 
 /// Returns the complex conjugate
 template <typename T>

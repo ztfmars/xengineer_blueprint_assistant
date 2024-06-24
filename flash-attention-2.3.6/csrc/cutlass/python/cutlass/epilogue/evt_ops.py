@@ -1,6 +1,6 @@
 #################################################################################################
 #
-# Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -36,9 +36,10 @@ Collection of builtin functions used for host reference in EVT
 
 import numpy as np
 
-from cutlass.utils.datatypes import is_cupy_tensor, is_numpy_tensor, is_torch_available, is_torch_tensor
+from cutlass.backend.utils.software import CheckPackages
 
-if is_torch_available():
+torch_available = CheckPackages().check_torch()
+if torch_available:
     import torch
 
 
@@ -47,16 +48,16 @@ def multiply_add(x, y, z):
 
 
 def sum(x, dim):
-    if is_numpy_tensor(x):
+    if isinstance(x, np.ndarray):
         return x.sum(axis=tuple(dim))
-    elif is_torch_tensor(x):
+    elif torch_available and isinstance(x, torch.Tensor):
         return torch.sum(x, dim)
 
 
 def max(x, dim):
-    if is_numpy_tensor(x):
+    if isinstance(x, np.ndarray):
         return x.max(axis=tuple(dim))
-    elif is_torch_tensor(x):
+    elif torch_available and isinstance(x, torch.Tensor):
         return torch.amax(x, dim)
 
 
@@ -65,14 +66,14 @@ def max(x, dim):
 ##############################################################################
 
 def permute(x, indices: tuple):
-    if is_numpy_tensor(x):
+    if isinstance(x, np.ndarray):
         return np.transpose(x, axes=indices)
-    elif is_torch_tensor(x):
+    elif torch_available and isinstance(x, torch.Tensor):
         return x.permute(*indices)
 
 
 def reshape(x, new_shape: tuple):
-    if is_numpy_tensor(x):
+    if isinstance(x, np.ndarray):
         return np.reshape(x, newshape=new_shape)
-    elif is_torch_tensor(x):
+    elif torch_available and isinstance(x, torch.Tensor):
         return x.view(new_shape)

@@ -13,7 +13,6 @@ Cris Cecka<br />
 Aniket Shivam<br />
 Jack Kosaian<br />
 Mark Hoemmen<br />
-Richard Cai<br />
 Honghao Lu<br />
 Ethan Yan<br />
 Haicheng Wu<br />
@@ -22,8 +21,6 @@ Dustyn Blasig<br />
 Fengqi Qiao<br />
 Duane Merrill<br />
 Yujia Zhai<br />
-Rawn Henry<br />
-Sergey Klevtsov<br />
 Shang Zhang<br />
 Piotr Majcher<br />
 Paul Springer<br />
@@ -58,7 +55,6 @@ Alan Kaatz<br />
 Tina Li<br />
 Timmy Liu<br />
 Wei Liu<br />
-Tim Martin<br />
 Duane Merrill<br />
 Kevin Siu<br />
 Markus Tavenrath<br />

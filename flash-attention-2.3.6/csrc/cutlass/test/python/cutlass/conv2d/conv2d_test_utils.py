@@ -1,6 +1,6 @@
 #################################################################################################
 #
-# Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -34,11 +34,10 @@
 Utility functions for Conv2d tests.
 """
 
-from cutlass_library import SubstituteTemplate
 import torch
 
 import cutlass
-from cutlass_library import (
+from cutlass import (
     ConvKind,
     ConvMode,
     DataType,
@@ -51,6 +50,7 @@ from cutlass_library import (
     ShortLayoutTypeNames,
     SplitKMode,
 )
+from cutlass.backend.utils.software import SubstituteTemplate
 from cutlass.shape import Conv2DProblemSize
 from cutlass.utils.datatypes import numpy_type, torch_type
 
@@ -301,19 +301,17 @@ class Conv2dLauncherFrontend:
         tensor_B = self.uniform_init(size=tensor_B_size, dtype=self.dtype_B)
         tensor_C = self.uniform_init(size=tensor_C_size, dtype=self.dtype_C)
         tensor_D = torch.zeros_like(tensor_C).to(memory_format=torch.channels_last)
-        args = self.operation.run(tensor_A, tensor_B, tensor_C, tensor_D,
+        self.operation.run(tensor_A, tensor_B, tensor_C, tensor_D,
             stride=(ps.stride_h, ps.stride_w),
             padding=(ps.pad_h, ps.pad_w),
             dilation=(ps.dilation_h, ps.dilation_w),
             alpha=alpha, beta=beta,
             split_k=(split_k_mode, split_k_slices))
 
-        args.sync()
-
         tensor_D_ref = self.reference(ps, tensor_A, tensor_B, tensor_C, alpha, beta, self.activation)
 
         torch.cuda.synchronize()
-        passed = torch.allclose(tensor_D, tensor_D_ref, atol=2e-06)
+        passed = torch.equal(tensor_D, tensor_D_ref)
 
         return passed
 
@@ -380,8 +378,7 @@ def add_test(
         conv2d_launcher = Conv2dLauncherFrontend(plan, 80, backend="torch")
 
         for ps in problem_sizes:
-            if not validate_problem_size(ps, conv_kind, split_k_slices):
-                continue
+            if not validate_problem_size(ps, conv_kind, split_k_slices): continue
 
             self.assertTrue(conv2d_launcher.run(ps, split_k_mode, split_k_slices, 1.0, 2.0))
 

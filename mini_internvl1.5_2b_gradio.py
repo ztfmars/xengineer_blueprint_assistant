@@ -10,11 +10,24 @@ import sys
 import datetime
 import time
 import json
+import subprocess
 from modelscope import snapshot_download
 
 ############## install flash attention
-os.system("cd ./flash-attention-2.3.6")
-os.system("python setup.py install")
+cur_dir = os.path.dirname(os.path.abspath(__file__))
+print("-----> flash att install begin")
+flash_att_path = os.path.join(cur_dir, "flash-attention-2.3.6")
+print(flash_att_path)
+# 组合命令
+commands = [
+    f"cd {flash_att_path}",
+    "python setup.py install",
+    f"cd {cur_dir}"
+]
+# 使用 subprocess 运行命令
+command_str = " && ".join(commands)
+process = subprocess.run(command_str, shell=True, check=True)
+print("----->flash att install end")
 
 ############## parameters
 IMAGENET_MEAN = (0.485, 0.456, 0.406)

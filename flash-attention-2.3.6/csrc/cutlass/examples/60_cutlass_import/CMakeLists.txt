@@ -1,4 +1,4 @@
-# Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,10 +37,9 @@
 
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 
-project(cutlass_import_example VERSION 0.2 LANGUAGES CXX CUDA)
+project(cutlass_import_example VERSION 0.1 LANGUAGES CXX CUDA)
 
-if (CUTLASS_DIR)
-  message(STATUS "Using CUTLASS specified at ${CUTLASS_DIR}.")
+if (DEFINED CUTLASS_DIR)
   list(APPEND CMAKE_PREFIX_PATH ${CUTLASS_DIR})
 endif()
 

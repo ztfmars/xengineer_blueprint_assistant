@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -60,10 +60,10 @@ using namespace cute;
 
 //////////////////// KERNEL /////////////////////////
 
-template <uint32_t Stages>
+template <uint32_t Stages, typename ClusterShape>
 struct SharedStorage
 {
-  typename cutlass::PipelineTmaAsync<Stages>::SharedStorage storage;
+  typename cutlass::PipelineTmaAsync<Stages, ClusterShape>::SharedStorage storage;
 };
 
 // Goal of this kernel is to complete deadlock-free
@@ -73,10 +73,10 @@ void pipeline_device(uint32_t const NumIterations)
 {
 
   extern __shared__ char shared_memory[];
-  using MainloopPipeline = cutlass::PipelineTmaAsync<NumStages>;
+  using MainloopPipeline = cutlass::PipelineTmaAsync<NumStages, ClusterShape>;
   using PipelineState = cutlass::PipelineState<NumStages>;
 
-  using SharedStorage = SharedStorage<NumStages>;
+  using SharedStorage = SharedStorage<NumStages, ClusterShape>;
   SharedStorage& shared_storage = *reinterpret_cast<SharedStorage*>(shared_memory);
 
   [[maybe_unused]] auto cta_layout = Layout<ClusterShape>{}; // (m,n) -> cta_id
@@ -98,7 +98,7 @@ void pipeline_device(uint32_t const NumIterations)
   params.is_leader = warp_group_thread_idx == 0;
   params.num_consumers = 128;
 
-  MainloopPipeline pipeline(shared_storage.storage, params, cluster_shape);
+  MainloopPipeline pipeline(shared_storage.storage, params);
 
   __syncthreads();
 
@@ -223,7 +223,7 @@ struct PipelineTest {
     }
 
     for (int iter = 0; iter < iterations; ++iter) {
-      int smem_size = int(sizeof(SharedStorage<Stages>));
+      int smem_size = int(sizeof(SharedStorage<Stages, decltype(cluster_shape)>));
 
       result = cudaFuncSetAttribute(
         pipeline_device<decltype(cluster_shape), Stages>,

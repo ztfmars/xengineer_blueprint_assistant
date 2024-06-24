@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -333,7 +333,7 @@ static struct {
 }
 OperationKind_enumerants[] = {
   {"eq_gemm", "EqGemm", OperationKind::kEqGemm}, 
-  {"gemm", "Gemm", OperationKind::kGemm},
+  {"gemm", "Gemm", OperationKind::kGemm},               
   {"rank_k", "RankK", OperationKind::kRankK},
   {"rank_2k", "Rank2K", OperationKind::kRank2K},
   {"trmm", "Trmm", OperationKind::kTrmm},

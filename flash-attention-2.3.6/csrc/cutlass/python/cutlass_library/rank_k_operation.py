@@ -1,6 +1,6 @@
 #################################################################################################
 #
-# Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -35,18 +35,12 @@ Utilities for emitting RankK kernels
 """
 
 import enum
-import functools
-import operator
 import os.path
 import shutil
+import functools
+import operator
 
-try:
-  import builtins
-  if hasattr(builtins, "CUTLASS_IGNORE_PACKAGE") and CUTLASS_IGNORE_PACKAGE == True:
-    raise ImportError("Disabling attempt to import cutlass_library")
-  from cutlass_library.library import *
-except ImportError:
-  from library import *
+from cutlass_library.library import *
 
 
 ###################################################################################################
@@ -81,10 +75,6 @@ class RankKOperation:
       MathOperation.multiply_add_complex_fast_f32
     ]
     return self.tile_description.math_instruction.math_operation in complex_operators
-    return False
-
-  #
-  def is_mixed_input(self):
     return False
 
   #
@@ -265,7 +255,7 @@ using Operation_${operation_name} =
   def emit(self, operation):
 
     threadblock_shape = operation.tile_description.threadblock_shape
-
+ 
     warp_count = operation.tile_description.warp_count
     warp_shape = [threadblock_shape[idx] // warp_count[idx] for idx in range(3)]
 

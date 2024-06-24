@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -98,28 +98,20 @@ sm90_get_epilogue_smem_swizzle_layout_atom() {
 }
 
 // Attempts to compute a reasonable epilogue tile based on block tile shape or allows the user to provide one.
-template <class ElementD, class EpilogueTileType, class Schedule, class TileShape_MNK>
+template <class ElementD, class EpilogueTileType, class Schedule>
 constexpr auto
 sm90_compute_tile_shape_or_override() {
   if constexpr (cute::is_same_v<EpilogueTileType, EpilogueTileAuto>) {
 
     if constexpr (detail::sm90_is_cooperative_v<Schedule>) {
-      using N_tile = decltype(cute::min(_32{}, get<1>(TileShape_MNK{})));
-      if constexpr (size<0>(TileShape_MNK{}) >= 128) {
-        return Shape<_128, N_tile>{};
-      }
-      else {
-        return Shape<_64, N_tile>{};
-      }
+      return Shape<_128,_32>{};
     }
     else if constexpr (detail::sm90_is_warp_specialized_v<Schedule>) {
       if constexpr (sizeof_bits_v<ElementD> == 8) {
-        using N_tile = decltype(cute::min(_64{}, get<1>(TileShape_MNK{})));
-        return Shape<_64, N_tile>{};
+        return Shape<_64,_64>{};
       }
       else {
-        using N_tile = decltype(cute::min(_32{}, get<1>(TileShape_MNK{})));
-        return Shape<_64,N_tile>{};
+        return Shape<_64,_32>{};
       }
     }
     else {
@@ -157,7 +149,7 @@ sm90_get_smem_store_op_for_accumulator() {
   }
   else {
     // auto-vectorizing store
-    return AutoVectorizingCopyWithAssumedAlignment{};
+    return DefaultCopy{};
   }
 }
 
@@ -178,7 +170,7 @@ sm90_get_smem_load_op_for_source() {
   }
   else {
     // auto-vectorizing load
-    return AutoVectorizingCopyWithAssumedAlignment{};
+    return DefaultCopy{};
   }
 }
 
@@ -199,48 +191,18 @@ struct CallbacksBuilder<
   TileShape_MNK,
   EpilogueTile_MN,
   ElementAccumulator,
-  enable_if_t<(FusionOp::IsAuxOutSupported ^ FusionOp::IsAuxInSupported) // only one aux tensor
-              && not is_subbyte_v<typename FusionOp::ElementAux>>
+  enable_if_t<FusionOp::IsAuxOutSupported>
 > {
   using GmemStrideTypeAux = gemm::TagToStrideC_t<typename FusionOp::GmemLayoutTagAux>;
   using SmemLayoutAtomAux = decltype(detail::sm90_get_epilogue_smem_swizzle_layout_atom<
     GmemStrideTypeAux, typename FusionOp::ElementAux, EpilogueTile_MN>());
-  using CopyOpR2S = decltype(detail::sm90_get_smem_store_op_for_accumulator<
+  using SmemCopyOpAux = decltype(detail::sm90_get_smem_store_op_for_accumulator<
     GmemStrideTypeAux, typename FusionOp::ElementAux>());
-  using CopyOpS2R = decltype(detail::sm90_get_smem_load_op_for_source<
-    GmemStrideTypeAux, typename FusionOp::ElementAux>());
-  using SmemCopyOpAux = conditional_t<FusionOp::IsAuxOutSupported, CopyOpR2S, CopyOpS2R>;
 
   using Callbacks = fusion::FusionCallbacks<
     Sm90TmaWarpSpecialized<StagesC, StagesD, FragmentSize, ReuseSmemC>,
     FusionOp, TileShape_MNK, EpilogueTile_MN,
     SmemLayoutAtomAux, SmemCopyOpAux
-  >;
-};
-
-template <
-  int StagesC,
-  int StagesD,
-  int FragmentSize,
-  bool ReuseSmemC,
-  class FusionOp,
-  class TileShape_MNK,
-  class EpilogueTile_MN,
-  class ElementAccumulator
->
-struct CallbacksBuilder<
-  Sm90TmaWarpSpecialized<StagesC, StagesD, FragmentSize, ReuseSmemC>,
-  FusionOp,
-  TileShape_MNK,
-  EpilogueTile_MN,
-  ElementAccumulator,
-  enable_if_t<(FusionOp::IsAuxOutSupported ^ FusionOp::IsAuxInSupported) // only one aux tensor
-              && sizeof_bits_v<typename FusionOp::ElementAux> == 1>
-> {
-  using Callbacks = fusion::FusionCallbacks<
-    Sm90TmaWarpSpecialized<StagesC, StagesD, FragmentSize, ReuseSmemC>,
-    FusionOp, TileShape_MNK, EpilogueTile_MN,
-    Layout<_1,_0>, DefaultCopy // aux bit tensor doesn't use smem
   >;
 };
 
@@ -254,30 +216,19 @@ template <
   class ElementC_,
   class GmemLayoutTagC_,
   int AlignmentC,
-  class ElementD_,
+  class ElementD,
   class GmemLayoutTagD,
   int AlignmentD,
   class FusionOpOrCallbacks,
   class DispatchPolicy
 >
 struct Sm90TmaBuilderImpl {
-  // Passing void D disables destination store + smem allocation
-  using ElementD = cute::conditional_t<cute::is_void_v<ElementD_>,
-                     fusion::get_element_aux_t<FusionOpOrCallbacks>, ElementD_>;
-
   // Passing void C disables source load + smem allocation
   using ElementC = cute::conditional_t<cute::is_void_v<ElementC_>,ElementD,ElementC_>; // prevents void ref breakages
   using GmemLayoutTagC = cute::conditional_t<cute::is_void_v<ElementC_>,GmemLayoutTagD,GmemLayoutTagC_>;
 
   using GmemStrideTypeC = cutlass::detail::TagToStrideC_t<GmemLayoutTagC>;
   using GmemStrideTypeD = cutlass::detail::TagToStrideC_t<GmemLayoutTagD>;
-
-  using CopyOpS2G =
-      SM90_TMA_STORE
-    ;
-  using CopyOpG2S =
-      SM90_TMA_LOAD
-    ;
 
   // TMA builder allows for passing callbacks directly, which is either a fusion::FusionCallbacks
   // instance or a direct visitor implementation, e.g. fusion::Sm90LinearCombination
@@ -296,13 +247,13 @@ struct Sm90TmaBuilderImpl {
       EpilogueTile_MN,
       ElementC_, // Need to pass void through to expose via GemmUniversal
       GmemStrideTypeC,
-      ElementD_,
+      ElementD,
       GmemStrideTypeD,
       FusionCallbacks,
-      CopyOpG2S,
+      SM90_TMA_LOAD,
       decltype(detail::sm90_get_epilogue_smem_swizzle_layout_atom<GmemStrideTypeC, ElementC, EpilogueTile_MN>()),
       decltype(detail::sm90_get_smem_load_op_for_source<GmemStrideTypeC, ElementC>()),
-      CopyOpS2G,
+      SM90_TMA_STORE,
       decltype(detail::sm90_get_epilogue_smem_swizzle_layout_atom<GmemStrideTypeD, ElementD, EpilogueTile_MN>()),
       decltype(detail::sm90_get_smem_store_op_for_accumulator<GmemStrideTypeD, ElementD>())
     >;
@@ -328,7 +279,7 @@ struct EpilogueDescriptor {
   using EpilogueTile = 
     decltype(
       detail::sm90_compute_tile_shape_or_override<
-        ElementD, EpilogueTileType, Schedule, TileShape_MNK
+        ElementD, EpilogueTileType, Schedule
       >()
     );
   using DispatchPolicy = 
@@ -414,7 +365,6 @@ template <
   class ElementD,
   class GmemLayoutTagD,
   int AlignmentD,
-  class Schedule,
   FloatRoundStyle RoundStyle
 >
 struct CollectiveBuilder<
@@ -431,10 +381,9 @@ struct CollectiveBuilder<
     ElementD,
     GmemLayoutTagD,
     AlignmentD,
-    Schedule,
-    fusion::LinearCombination<ElementD,ElementCompute,ElementC_,ElementCompute,RoundStyle>,
-    cute::enable_if_t<cute::is_same_v<Schedule, NoSmemWarpSpecialized> ||
-                      cute::is_same_v<Schedule, PtrArrayNoSmemWarpSpecialized> >> {
+    NoSmemWarpSpecialized,
+    fusion::LinearCombination<ElementD,ElementCompute,ElementCompute,RoundStyle>,
+    void> {
 
   // Passing void C disables source load
   using ElementC = cute::conditional_t<cute::is_void_v<ElementC_>,
@@ -449,21 +398,12 @@ struct CollectiveBuilder<
     ElementD, FragmentSize, ElementAccumulator, ElementCompute,
     ScaleType, RoundStyle, ElementC>;
 
-  using CollectiveOp = cute::conditional_t<
-    cute::is_same_v<Schedule, NoSmemWarpSpecialized>,
-    cutlass::epilogue::collective::detail::Sm90TmaWarpSpecializedAdapter<
-      cutlass::epilogue::collective::DefaultEpilogue<
-        cutlass::detail::TagToStrideC_t<GmemLayoutTagC>,
-        cutlass::detail::TagToStrideC_t<GmemLayoutTagD>,
-        ThreadOp,
-        cutlass::gemm::EpilogueDefault>>,
-    // Epilogue for Ptr-Array and Grouped Gemm
-    cutlass::epilogue::collective::detail::Sm90TmaWarpSpecializedAdapter<
-      cutlass::epilogue::collective::DefaultEpilogueArray<
-        cutlass::detail::TagToStrideC_t<GmemLayoutTagC>,
-        cutlass::detail::TagToStrideC_t<GmemLayoutTagD>,
-        ThreadOp,
-        Schedule>>
+  using CollectiveOp = cutlass::epilogue::collective::detail::Sm90TmaWarpSpecializedAdapter<
+    cutlass::epilogue::collective::DefaultEpilogue<
+      cutlass::detail::TagToStrideC_t<GmemLayoutTagC>,
+      cutlass::detail::TagToStrideC_t<GmemLayoutTagD>,
+      ThreadOp,
+      cutlass::gemm::EpilogueDefault>
     >;
 };
 
@@ -477,7 +417,7 @@ template <
   class ElementC,
   class GmemLayoutTagC,
   int AlignmentC,
-  class ElementD_,
+  class ElementD,
   class GmemLayoutTagD,
   int AlignmentD,
   class Schedule,
@@ -494,7 +434,7 @@ struct CollectiveBuilder<
     ElementC,
     GmemLayoutTagC,
     AlignmentC,
-    ElementD_,
+    ElementD,
     GmemLayoutTagD,
     AlignmentD,
     Schedule,
@@ -502,10 +442,8 @@ struct CollectiveBuilder<
     cute::enable_if_t<cute::is_same_v<Schedule, TmaWarpSpecialized> ||
                       cute::is_same_v<Schedule, TmaWarpSpecializedCooperative> >> {
 private:
-  using ElementD = cute::conditional_t<cute::is_void_v<ElementD_>,
-                     fusion::get_element_aux_t<FusionOperation>, ElementD_>;
   using EpilogueTile_MN =
-    decltype(detail::sm90_compute_tile_shape_or_override<ElementD, EpilogueTileType, Schedule, TileShape_MNK>());
+    decltype(detail::sm90_compute_tile_shape_or_override<ElementD, EpilogueTileType, Schedule>());
   using DispatchPolicy =
     decltype(detail::sm90_get_tma_dispatch_policy<TileShape_MNK,EpilogueTile_MN,ElementC,ElementD,Schedule>());
 
@@ -519,7 +457,7 @@ public:
       ElementC,
       GmemLayoutTagC,
       AlignmentC,
-      ElementD_,
+      ElementD,
       GmemLayoutTagD,
       AlignmentD,
       FusionOperation,
@@ -560,9 +498,6 @@ struct CollectiveBuilder<
     FusionOperation,
     void> {
 private:
-  static_assert(cute::is_same_v<FusionOperation, fusion::LinearCombination<ElementD,ElementCompute,ElementC,ElementCompute>>,
-                "Auto schedule doesn't support fusion. Use one of the TmaWarpSpecialized schedules instead.");
-
   // Pick No-Smem epilogue as the Auto Epilogue Schedule (Auto schedules do not guarantee best performance) 
   // since TMA epilogues are not compatible with non-TMA non-WS mainloops
   using EpilogueSchedule = NoSmemWarpSpecialized;
@@ -625,7 +560,7 @@ CollectiveBuilder<
                       cute::is_base_of_v<TmaWarpSpecializedCooperativeElementwiseBase, Schedule> >> {
 private:
   using FusionOp =
-    fusion::LinCombEltAct<Schedule::template ActivationFunctor, ElementD, ElementCompute, ElementC, ElementCompute, Schedule::Round>;
+    fusion::LinCombEltAct<Schedule::ActivationFunctor, ElementD, ElementCompute, ElementCompute, Schedule::Round>;
   using ImplSchedule =
     cute::conditional_t<cute::is_base_of_v<TmaWarpSpecializedElementwiseBase, Schedule>,
       TmaWarpSpecialized, TmaWarpSpecializedCooperative>;
@@ -688,7 +623,7 @@ CollectiveBuilder<
                       cute::is_base_of_v<TmaWarpSpecializedCooperativeBiasElementwiseBase, Schedule> >> {
 private:
   using EpilogueTile_MN = decltype(detail::sm90_compute_tile_shape_or_override<
-    ElementD, EpilogueTileType, Schedule, TileShape_MNK>());
+    ElementD, EpilogueTileType, Schedule>());
   // MSVC doesn't seem to be able to deduce DispatchPolicy correctly if it's
   // defined as decltype of a detail::sm90_get_tma_dispatch_policy call.
   // Instead, we paste in the contents of that function.  A natural refactoring
@@ -706,16 +641,16 @@ private:
   using SmemCopyOpAux = decltype(detail::sm90_get_smem_store_op_for_accumulator<
     GmemStrideTypeAux, typename Schedule::ElementT>());
   using FusionOperationAux = fusion::LinCombPerRowBiasEltActAux<
-    GmemLayoutTagD, Schedule::template ActivationFunctor, ElementD, ElementCompute,
-    typename Schedule::ElementT, typename Schedule::ElementBias, ElementC_, ElementCompute
+    GmemLayoutTagD, Schedule::ActivationFunctor, ElementD, ElementCompute,
+    typename Schedule::ElementT, typename Schedule::ElementBias, ElementCompute
   >;
   using FusionCallbacksAux = fusion::FusionCallbacks<
     DispatchPolicy, FusionOperationAux, TileShape_MNK, EpilogueTile_MN, SmemLayoutAtomAux, SmemCopyOpAux
   >;
 
   using FusionOperationNoAux = fusion::LinCombPerRowBiasEltAct<
-    Schedule::template ActivationFunctor, ElementD, ElementCompute,
-    typename Schedule::ElementBias, ElementC_, ElementCompute
+    Schedule::ActivationFunctor, ElementD, ElementCompute,
+    typename Schedule::ElementBias, ElementCompute
   >;
   using FusionCallbacksNoAux = fusion::FusionCallbacks<
     DispatchPolicy, FusionOperationNoAux, TileShape_MNK, EpilogueTile_MN
@@ -780,7 +715,7 @@ struct CollectiveBuilder<
     GmemLayoutTagD,
     AlignmentD,
     cutlass::gemm::EpilogueTransposed,
-    fusion::LinearCombination<ElementD,ElementCompute,ElementC_,ElementCompute,RoundStyle>,
+    fusion::LinearCombination<ElementD,ElementCompute,ElementCompute,RoundStyle>,
     void> {
   // Passing void C disables source load
   using ElementC = cute::conditional_t<cute::is_void_v<ElementC_>,

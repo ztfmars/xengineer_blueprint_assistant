@@ -1,6 +1,6 @@
 #################################################################################################
 #
-# Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,7 @@
 
 from pycute import product
 
-from cutlass_library import DataTypeSize, DataTypeTag
+from cutlass import DataTypeSize, DataTypeTag
 from cutlass.backend.evt.ir import (
     # Load Node
     AccumulatorImpl,
@@ -87,7 +87,7 @@ class Sm90LoadSrcImpl(LoadSrcImpl):
         self._type_decl = f"""
 using ElementC = {DataTypeTag[self.element]};
 using StrideC = {self.stride_mnl};
-using {self.name_camel} = cutlass::epilogue::fusion::Sm90SrcFetch<{DataTypeTag[self.element]}>;
+using {self.name_camel} = cutlass::epilogue::fusion::Sm90SrcFetch;
 """
         return self._type_decl
 

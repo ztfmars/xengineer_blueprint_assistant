@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -63,7 +63,6 @@ matrix_inf_norm(cute::Tensor<EngineType, LayoutType> const& host_matrix)
 {
   using std::abs;
   using error_type = decltype(std::declval<matrix_inf_norm_result>().inf_norm);
-  using element_type = typename EngineType::value_type;
 
   error_type inf_norm = 0.0;
   bool found_nan = false;
@@ -96,7 +95,6 @@ matrix_diff_inf_norm(cute::Tensor<EngineType, LayoutType> const& X,
 {
   using std::abs;
   using error_type = decltype(std::declval<matrix_inf_norm_result>().inf_norm);
-  using element_type = typename EngineType::value_type;
 
   assert(cute::size<0>(X) == cute::size<0>(Y));
   assert(cute::size<1>(X) == cute::size<1>(Y));
@@ -112,8 +110,7 @@ matrix_diff_inf_norm(cute::Tensor<EngineType, LayoutType> const& X,
   for(int64_t i = 0; i < num_rows; ++i) {
     error_type row_abs_sum = 0.0;
     for(int64_t j = 0; j < num_cols; ++j) {
-      row_abs_sum += error_type(abs(element_type(X(i,j)) - 
-                                    element_type(Y(i,j))));
+      row_abs_sum += abs(X(i,j) - Y(i,j));
     }
     if(std::isnan(row_abs_sum)) {
       found_nan = true;

@@ -1,6 +1,6 @@
 #################################################################################################
 #
-# Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,7 +37,7 @@ import subprocess
 
 import torch
 
-from cutlass_library import (
+from cutlass import (
     DataType,
     DataTypeSize,
     GemmUniversalMode,
@@ -49,6 +49,7 @@ from cutlass_library import (
 
 from cutlass.backend import compiler
 from cutlass.backend.gemm_operation import GemmArguments, GemmOperationUniversal
+from cutlass.backend.memory_manager import get_allocated_size
 from cutlass.backend.reduction_operation import ReductionArguments, ReductionOperation
 from cutlass.shape import GemmCoord, MatrixCoord
 from cutlass.utils.datatypes import torch_type
@@ -64,6 +65,16 @@ class GemmUniversalLauncher:
         compiler_mode= "nvcc",
         **kwargs,
     ) -> None:
+        # Create the reduction kernel, if needed
+        self.reduction_operation: ReductionOperation = ReductionOperation(
+            shape=MatrixCoord(4, 32 * operation.C.alignment),
+            C=operation.C,
+            element_accumulator=operation.tile_description.math_instruction.element_accumulator,
+            element_compute=operation.epilogue_functor.element_epilogue,
+            epilogue_functor=operation.epilogue_functor,
+            count=operation.C.alignment,
+        )
+
         self.math_operation = operation.tile_description.math_instruction.math_operation
         self.verification = verification
 
@@ -77,26 +88,19 @@ class GemmUniversalLauncher:
         op_list = [operation]
         if operation.arch < 90:
             # Split K via Python is currently only supported for pre-SM90 kernels
-            self.reduction_operation: ReductionOperation = ReductionOperation(
-                shape=MatrixCoord(4, 32 * operation.C.alignment),
-                C=operation.C,
-                element_accumulator=operation.tile_description.math_instruction.element_accumulator,
-                element_compute=operation.epilogue_functor.element_epilogue,
-                epilogue_functor=operation.epilogue_functor,
-                count=operation.C.alignment,
-            )
             op_list.append(self.reduction_operation)
 
         compiler.add_module(op_list, bypass_cache=False)
 
         self.operation = operation
 
-        self.dtype_A = torch_type(operation.A.element if not self.operation.switched else self.operation.B.element)
-        self.dtype_B = torch_type(operation.B.element if not self.operation.switched else self.operation.A.element)
+        self.dtype_A = torch_type(operation.A.element)
+        self.dtype_B = torch_type(operation.B.element)
         self.dtype_C = torch_type(operation.C.element)
-        self.dtype_D = torch_type(operation.epilogue_functor.element_output)
+        self.dtype_D = torch_type(operation.C.element)
 
-        element_size = min(DataTypeSize[operation.A.element], DataTypeSize[operation.B.element])
+        accumulator_size = DataTypeSize[operation.tile_description.math_instruction.element_accumulator]
+        element_size = DataTypeSize[operation.A.element]
 
         if element_size == 1:
             self.rand_max = 1
@@ -128,22 +132,13 @@ class GemmUniversalLauncher:
     def uniform_init(self, shape, dtype, layout):
         size = prod(shape)
         if dtype.is_floating_point:
-            # Initialize data in FP32 and call convert to the data type we desire.
-            # This is a workaround for the following error that occurs when attempting to
-            # call uniform_ on a tensor with torch.float8_e4m3fn data:
-            # RuntimeError: "check_uniform_bounds" not implemented for 'Float8_e4m3fn'
-            data = torch.ceil(
-                torch.empty(size=(size,), dtype=torch.float32, device="cuda").uniform_(
-                    self.rand_min - 0.5, self.rand_max - 0.5)
-                ).to(dtype)
+            data = torch.ceil(torch.empty(size=(size,), dtype=dtype, device="cuda").uniform_(self.rand_min - 0.5, self.rand_max - 0.5))
         else:
             # PyTorch does not currently support integer-typed matrix multiplications on GPU.
             # Fall back to CPU for integer type references.
             data = torch.empty(size=(size,), dtype=dtype, device="cpu").random_(self.rand_min, self.rand_max + 1)
 
-        is_fp8 = dtype == getattr(torch, "float8_e4m3fn", -1) or dtype == dtype == getattr(torch, "float8_e5m2", -1)
-
-        if dtype == torch.float64 or dtype == torch.float32 or is_fp8:
+        if dtype == torch.float64 or dtype == torch.float32:
             data = data.to("cpu")
 
         data_ref = data.reshape(shape)
@@ -154,29 +149,12 @@ class GemmUniversalLauncher:
             data_cutlass = data_ref.transpose(-1, -2).contiguous()
 
         data_cutlass = data_cutlass.to("cuda")
-
-        # As of this writing, few operations in PyTorch are supported with FP8 data.
-        # Thus, we perform computation in FP32 for FP8 reference checks.
-        if is_fp8:
-            data_ref = data_ref.to(torch.float32)
-
         return data_cutlass, data_ref
 
     def reference(self, problem_size, tensor_A, tensor_B, tensor_C, alpha, beta):
         # If any tensor is on CPU, place all tensors on CPU unless only
         # tensor C is on CPU
-        # Handle mixed-input cases by casting to the larger data type and overriding
-        # to whatever the data type of the larger type is
-        if self.dtype_A != self.dtype_B:
-            if DataTypeSize[self.operation.A.element] < DataTypeSize[self.operation.B.element]:
-                tensor_A = tensor_A.to(self.dtype_B).to(tensor_B.device)
-            else:
-                tensor_B = tensor_B.to(self.dtype_A).to(tensor_A.device)
-
-        devices = [x.device.type for x in [tensor_A, tensor_B]]
-        if tensor_C is not None:
-            devices.append(tensor_C.device.type)
-
+        devices = [x.device.type for x in [tensor_A, tensor_B, tensor_C]]
         if "cpu" in devices and devices != ["cuda", "cuda", "cpu"]:
             device = torch.device("cpu")
         else:
@@ -184,17 +162,14 @@ class GemmUniversalLauncher:
 
         tensor_A = tensor_A.to(device)
         tensor_B = tensor_B.to(device)
-        if tensor_C is not None:
-            tensor_C = tensor_C.to(device)
+        tensor_C = tensor_C.to(device)
 
         dtype = torch_type(self.compute_type)
         alpha_torch = torch.tensor([alpha], device=device).to(dtype)
         beta_torch = torch.tensor([beta], device=device).to(dtype)
 
         tmp = tensor_A @ tensor_B
-        tensor_D_ref = (alpha_torch * tmp)
-        if tensor_C is not None:
-            tensor_D_ref += (tensor_C * beta_torch)
+        tensor_D_ref = (alpha_torch * tmp) + (tensor_C * beta_torch)
         return tensor_D_ref.to(self.dtype_D)
 
     def run(self, mode, problem_size, batch_count=1, split_k_slices=1, alpha=1.0, beta=0.0):
@@ -224,22 +199,12 @@ class GemmUniversalLauncher:
             self.dtype_B,
             self.operation.B.layout if not self.operation.switched else transpose(self.operation.A.layout),
         )
-        if self.dtype_C is not None:
-            tensor_C, tensor_C_ref = self.uniform_init(
-                (true_batch_count, problem_size.m, problem_size.n),
-                self.dtype_C,
-                self.operation.C.layout if not self.operation.switched else transpose(self.operation.C.layout),
-            )
-        else:
-            tensor_C = None
-            tensor_C_ref = None
-
-        tensor_D, _ = self.uniform_init(
+        tensor_C, tensor_C_ref = self.uniform_init(
             (true_batch_count, problem_size.m, problem_size.n),
-            self.dtype_D,
+            self.dtype_C,
             self.operation.C.layout if not self.operation.switched else transpose(self.operation.C.layout),
         )
-        tensor_D = torch.zeros_like(tensor_D)
+        tensor_D = torch.zeros_like(tensor_C)
 
         if self.compute_type in [DataType.s8, DataType.s32, DataType.u8, DataType.u32]:
             alpha = int(alpha)
@@ -283,10 +248,6 @@ class GemmUniversalLauncher:
         if self.verification:
             if mode == GemmUniversalMode.GemmSplitKParallel:
                 reduction_arguments.sync()
-
-                # Free memory allocated by args because we are not
-                # calling `arguments.sync()` in this case (which will free memory)
-                arguments.free()
             else:
                 arguments.sync()
             tensor_D_ref = self.reference(
@@ -312,6 +273,9 @@ class GemmUniversalLauncher:
         del arguments
         if mode == GemmUniversalMode.GemmSplitKParallel:
             del reduction_arguments
+
+        cur_size = get_allocated_size()
+        assert cur_size == 0, f"{cur_size} B of memory were not released after this run"
 
         return passed
 

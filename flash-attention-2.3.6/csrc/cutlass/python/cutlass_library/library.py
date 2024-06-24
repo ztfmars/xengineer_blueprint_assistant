@@ -1,6 +1,6 @@
 #################################################################################################
 #
-# Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -289,7 +289,6 @@ class ComplexMultiplyOp(enum.Enum):
 class MathOperation(enum.Enum):
   multiply_add = enum_auto()
   multiply_add_saturate = enum_auto()
-  multiply_add_mixed_input_upcast = enum_auto()
   xor_popc = enum_auto()
   and_popc = enum_auto()
   multiply_add_fast_bf16 = enum_auto()
@@ -303,7 +302,6 @@ class MathOperation(enum.Enum):
 MathOperationTag = {
   MathOperation.multiply_add: 'cutlass::arch::OpMultiplyAdd', 
   MathOperation.multiply_add_saturate: 'cutlass::arch::OpMultiplyAddSaturate',
-  MathOperation.multiply_add_mixed_input_upcast: 'cutlass::arch::OpMultiplyAddMixedInputUpcast',
   MathOperation.xor_popc: 'cutlass::arch::OpXorPopc',
   MathOperation.and_popc: 'cutlass::arch::OpAndPopc',
   MathOperation.multiply_add_fast_bf16: 'cutlass::arch::OpMultiplyAddFastBF16',
@@ -400,9 +398,6 @@ ShortComplexLayoutNames = {
 class KernelScheduleType(enum.Enum):
   ScheduleAuto = enum_auto()
   Multistage = enum_auto()
-  CpAsyncWarpSpecialized = enum_auto()
-  CpAsyncWarpSpecializedPingpong = enum_auto()
-  CpAsyncWarpSpecializedCooperative = enum_auto()
   Tma = enum_auto()
   TmaWarpSpecialized = enum_auto()
   TmaWarpSpecializedPingpong = enum_auto()
@@ -414,9 +409,6 @@ class KernelScheduleType(enum.Enum):
 KernelScheduleTag = {
   KernelScheduleType.ScheduleAuto: 'cutlass::gemm::collective::KernelScheduleAuto',
   KernelScheduleType.Multistage: 'cutlass::gemm::KernelMultistage',
-  KernelScheduleType.CpAsyncWarpSpecialized: 'cutlass::gemm::KernelCpAsyncWarpSpecialized',
-  KernelScheduleType.CpAsyncWarpSpecializedPingpong: 'cutlass::gemm::KernelCpAsyncWarpSpecializedPingpong',
-  KernelScheduleType.CpAsyncWarpSpecializedCooperative: 'cutlass::gemm::KernelCpAsyncWarpSpecializedCooperative',
   KernelScheduleType.Tma: 'cutlass::gemm::KernelTma',
   KernelScheduleType.TmaWarpSpecialized: 'cutlass::gemm::KernelTmaWarpSpecialized',
   KernelScheduleType.TmaWarpSpecializedPingpong: 'cutlass::gemm::KernelTmaWarpSpecializedPingpong',
@@ -430,9 +422,6 @@ KernelScheduleTag = {
 KernelScheduleSuffixes = {
   KernelScheduleType.ScheduleAuto: '',
   KernelScheduleType.Multistage: '_cpasync',
-  KernelScheduleType.CpAsyncWarpSpecialized: '_cpasync_warpspecialized',
-  KernelScheduleType.CpAsyncWarpSpecializedPingpong: '_cpasync_warpspecialized_pingpong',
-  KernelScheduleType.CpAsyncWarpSpecializedCooperative: '_cpasync_warpspecialized_cooperative',
   KernelScheduleType.Tma: '_unspecialized',
   KernelScheduleType.TmaWarpSpecialized: '_warpspecialized',
   KernelScheduleType.TmaWarpSpecializedPingpong: '_warpspecialized_pingpong',
@@ -464,13 +453,6 @@ EpilogueScheduleSuffixes = {
   EpilogueScheduleType.NoSmemWarpSpecialized: '_epi_nosmem',
   EpilogueScheduleType.TmaWarpSpecialized: '_epi_tma',
   EpilogueScheduleType.TmaWarpSpecializedCooperative: '_epi_tma',
-}
-
-class EpilogueFunctor3x(enum.Enum):
-  LinearCombination = enum_auto()
-#
-EpilogueFunctor3xTag = {
-  EpilogueFunctor3x.LinearCombination: 'cutlass::epilogue::fusion::LinearCombination',
 }
 
 class TileSchedulerType(enum.Enum):
@@ -556,6 +538,7 @@ class OpcodeClass(enum.Enum):
   TensorOp = enum_auto()
   WmmaTensorOp = enum_auto()
   SparseTensorOp = enum_auto()
+
 
 OpcodeClassNames = {
   OpcodeClass.Simt: 'simt',
@@ -643,20 +626,19 @@ class GemmKind(enum.Enum):
   Sparse = enum_auto()
   Universal = enum_auto()
   Universal3x = enum_auto()
-  SparseUniversal3x = enum_auto()
   PlanarComplex = enum_auto()
   PlanarComplexArray = enum_auto()
   Grouped = enum_auto()
+
 #
 GemmKindNames = {
   GemmKind.Gemm: "gemm",
   GemmKind.Sparse: "spgemm",
   GemmKind.Universal: "gemm",
   GemmKind.Universal3x: "gemm",
-  GemmKind.SparseUniversal3x: "spgemm",
   GemmKind.PlanarComplex: "gemm_planar_complex",
   GemmKind.PlanarComplexArray: "gemm_planar_complex_array",
-  GemmKind.Grouped: "gemm_grouped",
+  GemmKind.Grouped: "gemm_grouped"
 }
 
 #
@@ -813,7 +795,7 @@ class GroupMode(enum.Enum):
   NoneGroup = enum_auto()         # dense conv (G=1)
   SingleGroup = enum_auto()       # grouped convolution (single group per CTA)
   MultipleGroup = enum_auto()     # grouped convolution ( multiple groups per CTA)
-  Depthwise = enum_auto()         # Depthwise convolution ( C=K=G )
+  Depthwise = enum_auto()    # Depthwise convolution ( C=K=G )
 
 #
 GroupModeTag = {
@@ -834,18 +816,14 @@ GroupModeNames = {
 
 #
 class MathInstruction:
-  def __init__(self, 
-      instruction_shape,                                            \
-      element_a, element_b, element_accumulator,                    \
-      opcode_class, math_operation = MathOperation.multiply_add     \
-    ): 
-
+  def __init__(self, instruction_shape, element_a, element_b, element_accumulator, opcode_class, math_operation = MathOperation.multiply_add):
     self.instruction_shape = instruction_shape
     self.element_a = element_a
     self.element_b = element_b
     self.element_accumulator = element_accumulator
     self.opcode_class = opcode_class
     self.math_operation = math_operation
+
 #
 class TileDescription:
 
@@ -986,13 +964,8 @@ def CalculateSmemUsage(operation):
                      cta_shape[0] * (cta_shape[2] // 2) // elements_per_8b_md
   else:
     # Few BLAS3 operations only have A tensor
-    data_type_size_a = DataTypeSize[operation.A.element]
-    data_type_size_b = DataTypeSize[operation.A.element]
-    if operation.is_mixed_input():
-      data_type_size_b = DataTypeSize[operation.B.element]
-
-    smem_per_stage = data_type_size_a * cta_shape[0] * cta_shape[2] // 8 + \
-                     data_type_size_b * cta_shape[1] * cta_shape[2] // 8
+    smem_per_stage = DataTypeSize[operation.A.element] * cta_shape[0] * cta_shape[2] // 8 + \
+                     DataTypeSize[operation.A.element] * cta_shape[1] * cta_shape[2] // 8
 
   smem_usage = smem_per_stage * stages
   return (smem_usage >> 10)

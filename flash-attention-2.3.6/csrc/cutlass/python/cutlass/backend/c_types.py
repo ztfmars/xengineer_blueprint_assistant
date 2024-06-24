@@ -1,6 +1,6 @@
 #################################################################################################
 #
-# Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -32,10 +32,9 @@
 
 import ctypes
 
-from cutlass_library import (
+from cutlass import (
     DataType,
-    KernelScheduleType,
-    TileSchedulerType
+    KernelScheduleType
 )
 from cutlass.backend.library import DataTypeSizeBytes
 
@@ -100,7 +99,6 @@ class StrideBatched_(ctypes.Structure):
     ]
 
 
-
 class GenericMainloopArguments3x_(ctypes.Structure):
     """
     Structure representing the superset of possible mainloop arguments.
@@ -117,45 +115,6 @@ class GenericMainloopArguments3x_(ctypes.Structure):
     ]
 
 
-class _PersistentTileSchedulerArguments(ctypes.Structure):
-    _fields_ = [
-        ("max_swizzle_size", ctypes.c_int),
-        ("raster_order_option", ctypes.c_int),
-    ]
-
-
-class _PersistentTileSchedulerStreamKArguments(ctypes.Structure):
-    _fields_ = [
-        ("splits", ctypes.c_int),
-        ("max_swizzle_size", ctypes.c_int),
-        ("raster_order_option", ctypes.c_int),
-        ("reduction_mode", ctypes.c_int),
-        ("decomposition_mode", ctypes.c_int),
-    ]
-
-
-def get_tile_scheduler_arguments_3x(
-    tile_scheduler: TileSchedulerType,
-    splits: int = 1):
-    max_swizzle_size = 1
-    raster_order_option = 0 # Heuristic
-    if tile_scheduler == TileSchedulerType.Persistent:
-        return _PersistentTileSchedulerArguments(
-            max_swizzle_size,
-            raster_order_option,
-        )
-    elif tile_scheduler == TileSchedulerType.StreamK:
-        reduction_mode = 0 # Deterministic
-        decomposition_mode = 0 # Heuristic
-        return _PersistentTileSchedulerStreamKArguments(
-            splits,
-            max_swizzle_size,
-            raster_order_option,
-            reduction_mode,
-            decomposition_mode,
-        )
-
-
 def get_mainloop_arguments_3x(
     kernel_schedule: KernelScheduleType,
     element_A,
@@ -166,7 +125,7 @@ def get_mainloop_arguments_3x(
     Returns the ctypes structure to be used for the 3.x kernel's mainloop parameters.
 
     :param kernel_schedule: type of kernel schedule to be used in the mainloop
-    :type kernel_schedule: cutlass_library.KernelScheduleType
+    :type kerel_schedule: cutlass.KernelScheduleType
     :param element_A: data type of operand A
     :param element_B: data type of operand B
     :param alignment_A: alignment of operand A
@@ -207,18 +166,29 @@ def get_mainloop_arguments_3x(
                 args.ptr_A, args.stride_A, args.ptr_B, args.stride_B,
             )
 
-    # Currently all 3.x kernels (CpAsync and Tma) have the same argument structure.
-    # Should that become not the case, this is the place to return custom ctypes
-    # structures based on selected kernel schedule.
-    return _MainloopArgumentsTma
+    tma_alignment_bytes = 16
+    is_tma_aligned_A = ((DataTypeSizeBytes[element_A] * alignment_A) % tma_alignment_bytes) == 0
+    is_tma_aligned_B = ((DataTypeSizeBytes[element_B] * alignment_B) % tma_alignment_bytes) == 0
+    is_tma_aligned = is_tma_aligned_A and is_tma_aligned_B
 
-
-def get_gemm_arguments_3x(mainloop_arguments, epilogue_functor, scheduler_args, default_epilogue):
-    if not default_epilogue and hasattr(epilogue_functor, "epilogue_type_evt"):
-        _EpilogueOutputOpParams = epilogue_functor.epilogue_type_evt
+    if kernel_schedule == KernelScheduleType.Multistage:
+        return _MainloopArgumentsMultistage
+    elif kernel_schedule == KernelScheduleType.ScheduleAuto:
+        if is_tma_aligned:
+            return _MainloopArgumentsTma
+        else:
+            return _MainloopArgumentsMultistage
     else:
-        _EpilogueOutputOpParams = epilogue_functor.epilogue_type
+        if is_tma_aligned:
+            return _MainloopArgumentsTma
+        else:
+            raise Exception(f"Specified a kernel schedule using TMA ({kernel_schedule}), but "
+                            "the provided data types and alignments are not properly aligned for "
+                            "using TMA.")
 
+
+def get_gemm_arguments_3x(mainloop_arguments, epilogue_functor):
+    _EpilogueOutputOpParams = epilogue_functor.epilogue_type
     if hasattr(epilogue_functor, "visitor"):
         class _EpilogueArguments(ctypes.Structure):
             _fields_ = [
@@ -232,6 +202,7 @@ def get_gemm_arguments_3x(mainloop_arguments, epilogue_functor, scheduler_args, 
                 self.arg_C = epilogue_functor.arg_c_type(ptr_c)
                 self.arg_D = epilogue_functor.arg_d_type(ptr_d)
     else:
+
         class _EpilogueArguments(ctypes.Structure):
             _fields_ = [
                 ("epilogue", _EpilogueOutputOpParams),
@@ -254,7 +225,7 @@ def get_gemm_arguments_3x(mainloop_arguments, epilogue_functor, scheduler_args, 
             ("mainloop", mainloop_arguments),
             ("epilogue", _EpilogueArguments),
             ("hw_info", _HardwareInfo),
-            ("scheduler", type(scheduler_args)),
+            ("splits", ctypes.c_int)
         ]
 
     return _GemmArguments, _EpilogueArguments, _EpilogueOutputOpParams, _HardwareInfo

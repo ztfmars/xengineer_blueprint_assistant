@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -109,11 +109,9 @@ using         ElementD    = ElementC;
 using         LayoutD     = LayoutC;
 constexpr int AlignmentD  = AlignmentC;
 
-// Auxiliary matrix configuration and other fusion types
+// Auxiliary matrix configuration
 using         ElementAux   = ElementC;
 using         LayoutAux    = LayoutC;
-using         ElementAmax  = float;
-using         ElementBias  = float;
 
 // Core kernel configurations
 using ElementAccumulator  = float;                                          // Element type for internal accumulation
@@ -126,7 +124,7 @@ using KernelSchedule      = cutlass::gemm::KernelTmaWarpSpecialized;
 using EpilogueSchedule    = cutlass::epilogue::TmaWarpSpecialized;
 using EpilogueTileType    = cutlass::epilogue::collective::EpilogueTileAuto;
 using FusionOperation     = cutlass::epilogue::fusion::ScaledLinCombPerRowBiasEltActAmaxAux<
-    LayoutAux, cutlass::epilogue::thread::ReLU, ElementD, ElementCompute, ElementAux, ElementAmax, ElementBias, ElementC>;
+    LayoutAux, cutlass::epilogue::thread::ReLU, ElementD, ElementCompute, ElementAux>;
 
 using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
     ArchTag, OperatorClass,

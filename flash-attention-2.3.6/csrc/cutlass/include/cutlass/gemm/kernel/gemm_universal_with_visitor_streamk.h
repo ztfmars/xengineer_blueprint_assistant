@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -233,17 +233,14 @@ public:
 
       // Initialize the block mapping structure
       block_mapping = ThreadblockSwizzle(
+        typename ThreadblockSwizzle::template KernelTraits<GemmWithEpilogueVisitorStreamk>(),
         args.mode,
         args.problem_size,
         {ThreadblockShape::kM, ThreadblockShape::kN, ThreadblockShape::kK},
         args.batch_count,
         sm_occupancy,
         device_sms,
-        avail_sms,
-        sizeof(ElementA),
-        sizeof(ElementB),
-        sizeof(ElementC),
-        Epilogue::kAccumulatorFragments);
+        avail_sms);
     }
 
 

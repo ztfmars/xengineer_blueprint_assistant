@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -137,11 +137,6 @@ struct sizeof_bits<bool> {
 
 template <int Bits, bool Signed>
 struct sizeof_bits<integer_subbyte<Bits,Signed>> {
-  static constexpr size_t value = Bits;
-};
-
-template <int Bits, bool Signed>
-struct sizeof_bits<cutlass::integer_subbyte<Bits,Signed>> {
   static constexpr size_t value = Bits;
 };
 

@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -58,7 +58,7 @@ template <
 class HostEVTNodeBase {
 public:
   using Gemm = Gemm_;
-  using TestBedImpl = typename detail::TestbedImpl<Gemm, cutlass::epilogue::thread::Identity, true>;
+  using TestBedImpl = typename detail::TestbedImpl<Gemm>;
   using Kernel = typename Gemm::GemmKernel;
   using Epilogue = typename Kernel::CollectiveEpilogue;
   using ElementCompute = typename TestBedImpl::ElementCompute;
@@ -173,7 +173,7 @@ public:
   HostScalarBroadcast(){}
   template<typename ProblemShapeType, typename TestBedImpl>
   HostScalarBroadcast(ProblemShapeType problem_size, TestBedImpl impl, bool check_relative_equality=false)
-    : Base(check_relative_equality), _scalar(ElementCompute(Value)) {}
+    :_scalar(ElementCompute(Value)), Base(check_relative_equality) {}
   
   template <class ElementAccumulator>
   ElementCompute visit(
@@ -232,15 +232,15 @@ public:
   HostRowBroadcast(){}
   template<typename ProblemShapeType>
   HostRowBroadcast(ProblemShapeType problem_size, TestBedImpl impl, bool check_relative_equality=false)
-    : Base(check_relative_equality), impl_(impl) {
+    :impl_(impl), Base(check_relative_equality) {
     auto problem_shape_MNKL = cute::append<4>(problem_size, 1);
     _N = cute::get<1>(problem_shape_MNKL);
     _bias.resize(cutlass::Coord<1>(_N));
     
     EXPECT_TRUE(
-      detail::initialize_tensor(
+      impl_.initialize_tensor(
         _bias.host_view(), cutlass::Distribution::Uniform, 
-        impl_.collective_mma_inputs.seed + 2023
+        impl_.seed + 2023
       )
     );
     _bias.sync_device();
@@ -300,15 +300,15 @@ public:
   HostColBroadcast(){}
   template<typename ProblemShapeType>
   HostColBroadcast(ProblemShapeType problem_size, TestBedImpl impl, bool check_relative_equality=false)
-    : Base(check_relative_equality), impl_(impl) {
+    :impl_(impl), Base(check_relative_equality) {
     auto problem_shape_MNKL = cute::append<4>(problem_size, 1);
     _M = cute::get<0>(problem_shape_MNKL);
     _bias.resize(cutlass::Coord<1>(_M));
     
     EXPECT_TRUE(
-      detail::initialize_tensor(
+      impl_.initialize_tensor(
         _bias.host_view(), cutlass::Distribution::Uniform, 
-        impl_.collective_mma_inputs.seed + 2023
+        impl_.seed + 2023
       )
     );
     _bias.sync_device();
@@ -382,7 +382,7 @@ public:
   HostAuxLoad(){}
   template<typename ProblemShapeType>
   HostAuxLoad(ProblemShapeType problem_size, TestBedImpl impl, bool check_relative_equality=false)
-    : Base(check_relative_equality), impl_(impl) {
+    :impl_(impl), Base(check_relative_equality){
     auto problem_shape_NMKL = cute::append<4>(problem_size, 1);
     auto [_M, _N, K, _L] = problem_shape_NMKL;
     auto aux_coord = cutlass::make_Coord(_M * _L, _N);
@@ -393,10 +393,10 @@ public:
       )
     );
     EXPECT_TRUE(
-      detail::initialize_tensor(
+      impl_.initialize_tensor(
         _tensor_aux_load.host_view(), 
         cutlass::Distribution::Uniform, 
-        impl_.collective_mma_inputs.seed + 2023
+        impl_.seed + 2023
       )
     );
     _tensor_aux_load.sync_device();
@@ -513,8 +513,8 @@ public:
   HostUnaryCompute(){}
   template <typename ProblemShapeType, typename TestBedImpl>
   HostUnaryCompute(ProblemShapeType problem_size, TestBedImpl impl, bool check_relative_equality=false):
-    Base(check_relative_equality),
-    _child_0(problem_size, impl, check_relative_equality) { }
+    _child_0(problem_size, impl, check_relative_equality),
+    Base(check_relative_equality) { }
 
   template <class ElementAccumulator>
   ElementCompute visit(
@@ -578,8 +578,8 @@ public:
   HostAuxStore(){}
   template <typename ProblemShapeType>
   HostAuxStore(ProblemShapeType problem_size, TestBedImpl impl, bool check_relative_equality=false):
-    Base(check_relative_equality),
-    impl_(impl) {
+    impl_(impl),
+    Base(check_relative_equality) {
     auto problem_shape_MNKL = cute::append<4>(problem_size, 1);
     auto [_M, _N, K, _L] = problem_shape_MNKL;
     auto aux_coord = cutlass::make_Coord(_M * _L, _N);
@@ -677,8 +677,8 @@ public:
   HostRowReduce(){}
   template <typename ProblemShapeType>
   HostRowReduce(ProblemShapeType problem_size, TestBedImpl impl, bool check_relative_equality=false):
-    Base(check_relative_equality),
-    impl_(impl) {
+    impl_(impl),
+    Base(check_relative_equality) {
     auto problem_shape_MNKL = cute::append<4>(problem_size, 1);
     _N = cute::get<1>(problem_shape_MNKL);
     _tensor_row_reduce.resize(cutlass::Coord<1>(_N));
@@ -764,8 +764,8 @@ public:
   HostColumnReduce(){}
   template <typename ProblemShapeType>
   HostColumnReduce(ProblemShapeType problem_size, TestBedImpl impl, bool check_relative_equality=false):
-    Base(check_relative_equality),
-    impl_(impl) {
+    impl_(impl),
+    Base(check_relative_equality) {
     auto problem_shape_MNKL = cute::append<4>(problem_size, 1);
     _M = cute::get<0>(problem_shape_MNKL);
     _tensor_column_reduce.resize(cutlass::Coord<1>(_M));
@@ -850,8 +850,9 @@ public:
   HostScalarReduce(){}
   template <typename ProblemShapeType>
   HostScalarReduce(ProblemShapeType problem_size, TestBedImpl impl, bool check_relative_equality=false):
-    Base(check_relative_equality),
-    impl_(impl) {
+    impl_(impl),
+    Base(check_relative_equality) {
+    auto problem_shape_MNKL = cute::append<4>(problem_size, 1);
     _tensor_scalar_reduce.resize(cutlass::Coord<1>(1));
     _reference_scalar_reduce.resize(cutlass::Coord<1>(1));
     _reduce_buffer.resize(cutlass::Coord<1>(1));
@@ -1154,7 +1155,7 @@ public:
   // The EVT Module to test
   using EVTModule = typename EVT::EVTModule;
 
-  using TestBedImpl = typename detail::TestbedImpl<Gemm, cutlass::epilogue::thread::Identity, true>;
+  using TestBedImpl = typename detail::TestbedImpl<Gemm>;
   using Kernel = typename Gemm::GemmKernel;
   using Epilogue = typename Gemm::GemmKernel::CollectiveEpilogue;
   using ElementAccumulator = typename Kernel::ElementAccumulator;
@@ -1178,9 +1179,7 @@ public:
     cutlass::Distribution::Kind init_C_ = cutlass::Distribution::Uniform,
     uint64_t seed_ = TestBedImpl::kDefaultSeed
   ) :
-     impl_((check_relative_equality_ ? CheckEquality::RELATIVE : CheckEquality::EXACT), ScalarLoc::ON_DEVICE, VectorBeta::ENABLED,
-           init_A_, init_B_, init_C_, cutlass::Distribution::Uniform, cutlass::Distribution::Uniform, seed_),
-           check_relative_equality(check_relative_equality_) { }
+     impl_(init_A_, init_B_, init_C_, seed_), check_relative_equality(check_relative_equality_) { }
 
   Testbed3xEVT(
     cutlass::Distribution::Kind init_A_ = cutlass::Distribution::Uniform,
@@ -1188,9 +1187,7 @@ public:
     cutlass::Distribution::Kind init_C_ = cutlass::Distribution::Uniform,
     uint64_t seed_ = TestBedImpl::kDefaultSeed
   ) :
-     impl_(CheckEquality::EXACT, ScalarLoc::ON_DEVICE, VectorBeta::ENABLED,
-           init_A_, init_B_, init_C_, cutlass::Distribution::Uniform, cutlass::Distribution::Uniform, seed_),
-           check_relative_equality(false)  { }
+     impl_(init_A_, init_B_, init_C_, seed_), check_relative_equality(false)  { }
 
   Testbed3xEVT(
     typename LayoutTagA::Stride stride_factor_A_,
@@ -1202,10 +1199,15 @@ public:
     cutlass::Distribution::Kind init_C_ = cutlass::Distribution::Uniform,
     uint64_t seed_ = TestBedImpl::kDefaultSeed
   ) :
-    impl_(stride_factor_A_, stride_factor_B_, stride_factor_C_, stride_factor_D_,
-          CheckEquality::EXACT, ScalarLoc::ON_DEVICE, VectorBeta::ENABLED,
-          init_A_, init_B_, init_C_, cutlass::Distribution::Uniform, cutlass::Distribution::Uniform, seed_),
-          check_relative_equality(false)  { }
+    impl_(stride_factor_A_,
+      stride_factor_B_,
+      stride_factor_C_,
+      stride_factor_D_,
+      init_A_,
+      init_B_,
+      init_C_,
+      seed_),
+    check_relative_equality(false)  { }
   
   /// Initializes data structures
   void initialize(ProblemShapeType problem_size) {
@@ -1227,12 +1229,13 @@ public:
     auto N = cute::get<1>(problem_shape_MNKL);
     auto K = cute::get<2>(problem_shape_MNKL);
     auto L = cute::get<3>(problem_shape_MNKL);
+    auto coord_0 = cutlass::make_Coord(0);
 
-    auto A = cute::make_tensor(impl_.collective_mma_inputs.tensor_A.host_data(),
-      cute::make_layout(cute::make_shape(M, K, L), impl_.collective_mma_inputs.stride_a));
-    auto B = cute::make_tensor(impl_.collective_mma_inputs.tensor_B.host_data(),
-      cute::make_layout(cute::make_shape(N, K, L), impl_.collective_mma_inputs.stride_b));
-    auto LayoutD = cute::make_layout(cute::make_shape(M, N, L), impl_.collective_epilogue.stride_d);
+    auto A = cute::make_tensor(impl_.tensor_A.host_data(),
+      cute::make_layout(cute::make_shape(M, K, L), impl_.stride_a));
+    auto B = cute::make_tensor(impl_.tensor_B.host_data(),
+      cute::make_layout(cute::make_shape(N, K, L), impl_.stride_b));
+    auto LayoutD = cute::make_layout(cute::make_shape(M, N, L), impl_.stride_d);
 
     cutlass::reference::host::GettMainloopParams<ElementAccumulator, decltype(A), decltype(B)> mainloop_params{A, B};
 
@@ -1276,9 +1279,9 @@ public:
         << ", Batch count = " << L << "\n\n";
       
       file
-        << "A =\n" << impl_.collective_mma_inputs.tensor_A.host_view()
-        << "\nB =\n" << impl_.collective_mma_inputs.tensor_B.host_view()
-        << "\nC =\n" << impl_.collective_epilogue.tensor_C.host_view() << "\n\n";
+        << "A =\n" << impl_.tensor_A.host_view()
+        << "\nB =\n" << impl_.tensor_B.host_view()
+        << "\nC =\n" << impl_.tensor_C.host_view() << "\n\n";
       
       file << error_ss.str();
     }
@@ -1304,7 +1307,7 @@ public:
     cutlass::KernelHardwareInfo hw_info;
     hw_info.device_id = 0;
     if (not profiling) {
-      impl_.sm_count = std::min(impl_.MaxSmCount, cutlass::KernelHardwareInfo::query_device_multiprocessor_count(hw_info.device_id));
+      impl_.sm_count = min(impl_.MaxSmCount, cutlass::KernelHardwareInfo::query_device_multiprocessor_count(hw_info.device_id));
       hw_info.sm_count = impl_.sm_count;
     }
     else {
@@ -1328,15 +1331,15 @@ public:
       cutlass::gemm::GemmUniversalMode::kGemm,
       problem_size,
       {
-        impl_.collective_mma_inputs.tensor_A.device_data(), impl_.collective_mma_inputs.stride_a,
-        impl_.collective_mma_inputs.tensor_B.device_data(), impl_.collective_mma_inputs.stride_b
+        impl_.tensor_A.device_data(), impl_.stride_a,
+        impl_.tensor_B.device_data(), impl_.stride_b
       },
       {   // Epilogue arguments
         {}, // thread
         static_cast<ElementC*>(host_reference.get_tensor_C_ptr()),
-        impl_.collective_epilogue.stride_c,
+        impl_.stride_c,
         static_cast<ElementD*>(host_reference.get_tensor_D_ptr()),
-        impl_.collective_epilogue.stride_d
+        impl_.stride_d
       },  // Epilogue arguments end
       hw_info,
       scheduler_args

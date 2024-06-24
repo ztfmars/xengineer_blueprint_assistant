@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -525,9 +525,11 @@ back(T&& t)
     // We help it by peeling off the nonrecursive case a level "early."
     if constexpr (! is_tuple<remove_cvref_t<decltype(get<N - 1>(static_cast<T&&>(t)))>>::value) {
       return get<N - 1>(static_cast<T&&>(t));
-    } else {
+    }
+    else {
       return back(get<N - 1>(static_cast<T&&>(t)));
     }
+
   } else {
     return static_cast<T&&>(t);
   }
@@ -563,7 +565,8 @@ select(T const & t, Indices const & indices)
 {
   if constexpr (is_tuple<Indices>::value) {
     return cute::transform(indices, [&t](auto i) { return select(t, i); });
-  } else {
+  }
+  else {
     static_assert(is_static<Indices>::value, "Order must be static");
     return get<Indices::value>(t);
   }
@@ -604,7 +607,8 @@ unwrap(T const& t)
 }
 
 //
-// Flatten and Unflatten
+// Flatten a hierarchical tuple to a tuple of depth one.
+//
 //
 
 template <class T>
@@ -613,17 +617,16 @@ struct is_flat : true_type {};
 template <class... Ts>
 struct is_flat<tuple<Ts...>> : bool_constant<(true && ... && (not is_tuple<Ts>::value))> {};
 
-// Flatten a hierarchical tuple to a tuple of depth one
-//   and wrap non-tuples into a rank-1 tuple.
 template <class T>
 CUTE_HOST_DEVICE constexpr
 auto
 flatten_to_tuple(T const& t)
 {
   if constexpr (is_tuple<T>::value) {
-    if constexpr (is_flat<T>::value) {      // Shortcut for perf
+    if constexpr (is_flat<T>::value) {
       return t;
-    } else {
+    } else
+    {
       return filter_tuple(t, [](auto const& a) { return flatten_to_tuple(a); });
     }
   } else {
@@ -633,17 +636,16 @@ flatten_to_tuple(T const& t)
   CUTE_GCC_UNREACHABLE;
 }
 
-// Flatten a hierarchical tuple to a tuple of depth one
-//   and leave non-tuple untouched.
 template <class T>
 CUTE_HOST_DEVICE constexpr
 auto
 flatten(T const& t)
 {
   if constexpr (is_tuple<T>::value) {
-    if constexpr (is_flat<T>::value) {      // Shortcut for perf
+    if constexpr (is_flat<T>::value) {
       return t;
-    } else {
+    } else
+    {
       return filter_tuple(t, [](auto const& a) { return flatten_to_tuple(a); });
     }
   } else {
@@ -651,43 +653,6 @@ flatten(T const& t)
   }
 
   CUTE_GCC_UNREACHABLE;
-}
-
-namespace detail {
-
-template<class FlatTuple, class TargetProfile>
-CUTE_HOST_DEVICE constexpr
-auto
-unflatten_impl(FlatTuple const& flat_tuple, TargetProfile const& target_profile)
-{
-  if constexpr (is_tuple<TargetProfile>::value) {
-    return fold(target_profile, cute::make_tuple(cute::make_tuple(), flat_tuple), [](auto const& v, auto const& t) {
-      auto [result, remaining_tuple] = v;
-      auto [sub_result, sub_tuple] = unflatten_impl(remaining_tuple, t);
-      return cute::make_tuple(append(result, sub_result), sub_tuple);
-    });
-  } else {
-    return cute::make_tuple(get<0>(flat_tuple), take<1, decltype(rank(flat_tuple))::value>(flat_tuple));
-  }
-
-  CUTE_GCC_UNREACHABLE;
-}
-
-}  // end namespace detail
-
-// Unflatten a flat tuple into a hierarchical tuple
-// @pre flatten(@a flat_tuple) == @a flat_tuple
-// @pre rank(flatten(@a target_profile)) == rank(@a flat_tuple)
-// @post congruent(@a result, @a target_profile)
-// @post flatten(@a result) == @a flat_tuple
-template<class FlatTuple, class TargetProfile>
-CUTE_HOST_DEVICE constexpr
-auto
-unflatten(FlatTuple const& flat_tuple, TargetProfile const& target_profile)
-{
-  auto [unflatten_tuple, flat_remainder] = detail::unflatten_impl(flat_tuple, target_profile);
-  CUTE_STATIC_ASSERT_V(rank(flat_remainder) == Int<0>{});
-  return unflatten_tuple;
 }
 
 //
@@ -771,18 +736,6 @@ replace_back(T const& t, X const& x)
 template <int N, class X>
 CUTE_HOST_DEVICE constexpr
 auto
-tuple_repeat(X const& x)
-{
-  return detail::construct(0, x, seq<>{}, make_seq<N>{}, seq<>{});
-}
-
-//
-// Make repeated Xs of rank N
-//
-
-template <int N, class X>
-CUTE_HOST_DEVICE constexpr
-auto
 repeat(X const& x)
 {
   if constexpr (N == 1) {
@@ -790,12 +743,10 @@ repeat(X const& x)
   } else {
     return detail::construct(0, x, seq<>{}, make_seq<N>{}, seq<>{});
   }
-
-  CUTE_GCC_UNREACHABLE;
 }
 
 //
-// Make a tuple of Xs the same profile as tuple T
+// Make a tuple of Xs the same profile as tuple
 //
 
 template <class T, class X>
@@ -915,6 +866,48 @@ prepend(T const& a, X const& x)
 
   CUTE_GCC_UNREACHABLE;
 }
+
+//
+// Unflatten a flat tuple into a hierarchical one
+// unflatten(x, flatten(x)) == x
+//
+
+namespace detail {
+
+template<class FlatTuple, class TargetProfile>
+CUTE_HOST_DEVICE constexpr
+auto
+unflatten_impl(FlatTuple const& flat_tuple, TargetProfile const& target_profile)
+{
+  if constexpr (is_tuple<TargetProfile>::value) {
+    return fold(target_profile, cute::make_tuple(cute::make_tuple(), flat_tuple), [](auto const& v, auto const& t) {
+      auto [result, remaining_tuple] = v;
+      auto [sub_result, sub_tuple] = unflatten_impl(remaining_tuple, t);
+      return cute::make_tuple(append(result, sub_result), sub_tuple);
+    });
+  } else {
+    return cute::make_tuple(get<0>(flat_tuple), take<1, decltype(rank(flat_tuple))::value>(flat_tuple));
+  }
+
+  CUTE_GCC_UNREACHABLE;
+}
+
+}  // end namespace detail
+
+// @pre flatten(@a flat_tuple) == @a flat_tuple
+// @pre rank(flatten(@a target_profile)) == rank(@a flat_tuple)
+// @post congruent(@a result, @a target_profile)
+// @post flatten(@a result) == @a flat_tuple
+template<class FlatTuple, class TargetProfile>
+CUTE_HOST_DEVICE constexpr
+auto
+unflatten(FlatTuple const& flat_tuple, TargetProfile const& target_profile)
+{
+  auto [unflatten_tuple, flat_remainder] = detail::unflatten_impl(flat_tuple, target_profile);
+  CUTE_STATIC_ASSERT_V(rank(flat_remainder) == Int<0>{});
+  return unflatten_tuple;
+}
+
 
 //
 // Inclusive scan (prefix sum)

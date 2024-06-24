@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -66,21 +66,7 @@ struct index_sequence_helper<0, 0, Next...> {
 template <size_t N>
 using make_index_sequence = typename index_sequence_helper<N>::type;
 
-
 /////////////////////////////////////////////////////////////////////////////////////////////////
-//
-// Get the register type used in kernel
-//
-/////////////////////////////////////////////////////////////////////////////////////////////////
-
-namespace detail {
-
-template<typename T>
-struct get_unpacked_element_type {
-  using type = T;
-};
-
-} // namespace detail
 
 }  // namespace cutlass
 

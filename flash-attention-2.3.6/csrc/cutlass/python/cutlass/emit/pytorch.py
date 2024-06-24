@@ -1,6 +1,6 @@
 #################################################################################################
 #
-# Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -39,7 +39,7 @@ Example usage with JIT compilation:
 .. highlight:: python
 .. code-block:: python
 
-    plan = cutlass.op.Gemm(element=torch.float32, layout=cutlass_library.LayoutType.RowMajor)
+    plan = cutlass.op.Gemm(element=torch.float32, layout=cutlass.LayoutType.RowMajor)
     op = plan.construct()
     mod = cutlass.emit.pytorch(op, 'cutlass_gemm', 80, jit=True)
 
@@ -81,16 +81,15 @@ The module can later be used in Python via:
 import logging
 import os
 
-from cutlass_library import ConvKind, ConvKindNames, DataType, SubstituteTemplate
-
-from cutlass import CUTLASS_PATH, logger, swizzle
+from cutlass import CUTLASS_PATH, logger, swizzle, ConvKind, ConvKindNames, DataType
 from cutlass.backend.gemm_operation import GemmOperationGrouped, GemmOperationUniversal
 from cutlass.backend.conv2d_operation import Conv2dOperation
 from cutlass.backend.library import ApiVersion
+from cutlass.backend.utils.software import CheckPackages, SubstituteTemplate
 from cutlass.emit import common
-from cutlass.utils.datatypes import is_torch_available
 
-if is_torch_available():
+torch_available = CheckPackages().check_torch()
+if torch_available:
     import torch
 
 
@@ -657,10 +656,7 @@ class _ArchListSetter:
         """
         Restores the old value of TORCH_CUDA_ARCH_LIST
         """
-        if self.old_arch_list is None:
-            del os.environ[_ArchListSetter._TORCH_CUDA_ARCH_LIST]
-        else:
-            os.environ[_ArchListSetter._TORCH_CUDA_ARCH_LIST] = self.old_arch_list
+        os.environ[_ArchListSetter._TORCH_CUDA_ARCH_LIST] = self.old_arch_list
 
 
 def _jit(name: str, cc: int, cpp_file: str, cuda_file: str):

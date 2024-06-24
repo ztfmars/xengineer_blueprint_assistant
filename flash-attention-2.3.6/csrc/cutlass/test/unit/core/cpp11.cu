@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -42,7 +42,6 @@
 
 #include <cutlass/cutlass.h>
 
-#include <cutlass/complex.h>
 #include <cutlass/coord.h>
 #include <cutlass/core_io.h>
 #include <cutlass/array.h>
@@ -52,12 +51,12 @@
 #include <cutlass/half.h>
 #include <cutlass/integer_subbyte.h>
 #include <cutlass/kernel_hardware_info.h>
-#include <cutlass/numeric_conversion.h>
 #include <cutlass/numeric_size.h>
 #include <cutlass/numeric_types.h>
 #include <cutlass/tfloat32.h>
 #include <cutlass/workspace.h>
 #include <cutlass/subbyte_reference.h>
+
 #include <cutlass/conv/convolution.h>
 #include <cutlass/conv/conv2d_problem_size.h>
 

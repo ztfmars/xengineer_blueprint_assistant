@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -43,8 +43,7 @@ using Layout = cutlass::layout::RowMajor;
 void rmsnorm_host(cutlass::MatrixCoord tensor_size,
 		  cutlass::TensorRef<ElementType, Layout> output,
 		  cutlass::TensorRef<ElementType, Layout> input,
-		  cutlass::TensorRef<ElementType, Layout> weight,
-                  float epsilon) {
+		  cutlass::TensorRef<ElementType, Layout> weight) {
   const int M = tensor_size.row();
   const int N = tensor_size.column();
 
@@ -57,7 +56,7 @@ void rmsnorm_host(cutlass::MatrixCoord tensor_size,
     }
 
     float sq_mean = square_sum / (float)N;
-    float sqrt_var = cutlass::fast_sqrt(sq_mean + epsilon);
+    float sqrt_var = cutlass::fast_sqrt(sq_mean + (float)1e-6);
 
     for (int n = 0; n < N; ++n) {
       float inp = static_cast<float>(input.at({m, n}));
@@ -92,9 +91,9 @@ void run_test(int M, int N) {
   input.sync_device();
   weight.sync_device();
 
-  rmsnorm_host({M, N}, output_ref.host_ref(), input.host_ref(), weight.host_ref(), (float)1e-5);
+  rmsnorm_host({M, N}, output_ref.host_ref(), input.host_ref(), weight.host_ref());
   cutlass::rmsnorm({M, N}, output.device_ref(),
-		   input.device_ref(), weight.device_ref(), NULL, (float)1e-5L);
+		   input.device_ref(), weight.device_ref(), NULL);
 
   output.sync_host();
 

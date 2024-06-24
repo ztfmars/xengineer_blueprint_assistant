@@ -1,6 +1,6 @@
 #################################################################################################
 #
-# Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -38,13 +38,12 @@ import subprocess
 import tempfile
 
 from cuda import cuda, nvrtc
-from cutlass_library import SubstituteTemplate
 
-import cutlass
-from cutlass import CACHE_FILE, CUTLASS_PATH, cuda_install_path, logger
+from cutlass import CACHE_FILE, CUDA_INSTALL_PATH, CUTLASS_PATH, logger
 from cutlass.backend.gemm_operation import GemmOperationUniversal
 from cutlass.backend.library import ApiVersion
 from cutlass.backend.utils.device import device_cc
+from cutlass.backend.utils.software import SubstituteTemplate
 
 IncludeTemplate = r"""#include "${include}"
 """
@@ -53,7 +52,7 @@ IncludeTemplate = r"""#include "${include}"
 def compile_with_nvcc(cmd, source, error_file):
     succeed = True
     try:
-        subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+        subprocess.check_output(cmd, stderr=subprocess.STDOUT, shell=True)
     except subprocess.CalledProcessError as e:
         error_message = e.output.decode()
         with open(error_file, "w") as error_out:
@@ -82,19 +81,20 @@ class CompilationOptions:
         self.arch = arch
 
     def get_str(self):
-        opts = []
+        options = ""
+
         for flag in self.flags:
-            opts.append(flag)
+            options += " " + flag
 
         for incl in self.include_paths:
-            opts.append(f"--include-path={incl}")
+            options += " --include-path=%s" % incl
 
-        arch_flag = f"-arch=sm_{self.arch}"
+        arch_flag = " -arch=sm_%d" % self.arch
         if self.arch == 90:
             arch_flag += "a"
-        opts.append(arch_flag)
+        options += arch_flag
 
-        return " ".join(opts)
+        return options
 
     def get(self):
         options = []
@@ -103,9 +103,9 @@ class CompilationOptions:
             options.append(bytes(str.encode(flag)))
 
         for incl in self.include_paths:
-            options.append(bytes(str.encode(f" --include-path={incl}")))
+            options.append(bytes(str.encode("--include-path=%s" % incl)))
 
-        arch_flag = f" -arch=sm_{self.arch}"
+        arch_flag = " -arch=sm_%d" % self.arch
         if self.arch == 90:
             arch_flag += "a"
 
@@ -316,56 +316,58 @@ class ArtifactManager:
             # compile with nvcc
             cmd_template = "${cuda_install_path}/bin/nvcc ${options} -cubin ${srcfile} -o ${tarfile}"
             values = {
-                "cuda_install_path": cuda_install_path(),
+                "cuda_install_path": CUDA_INSTALL_PATH,
                 "options": compilation_options.get_str(),
                 "srcfile": temp_cu.name,
                 "tarfile": temp_cubin.name,
             }
             cmd = SubstituteTemplate(cmd_template, values)
-            compile_with_nvcc(cmd.split(" "), source_buffer_device, "./cutlass_python_compilation_device_error.txt")
+            compile_with_nvcc(cmd, source_buffer_device, "./cutlass_python_compilation_device_error.txt")
 
             # load the cubin image
             with open(temp_cubin.name, "rb") as file:
                 cubin_image = file.read()
 
+        # Set up the host-side library code
+        cmd_template = (
+            "echo '%s'|${cuda_install_path}/bin/nvcc -x cu -Xcompiler=\"-fpermissive -w -fPIC\" ${options}"
+            % source_buffer_host
+        )
+        cmd = SubstituteTemplate(
+            cmd_template,
+            {
+                "cuda_install_path": CUDA_INSTALL_PATH,
+                "options": host_compilation_options.get_str(),
+            },
+        )
+
         tempfile.tempdir = "./"
-        temp_src = tempfile.NamedTemporaryFile(
-            prefix="host_src", suffix=".cu", delete=True)
-
-        # Write the host source
-        with open(temp_src.name, "w") as outfile:
-            outfile.write(source_buffer_host)
-
-        temp_dst = tempfile.NamedTemporaryFile(
+        temp = tempfile.NamedTemporaryFile(
             prefix="host_func", suffix=".so", delete=True)
 
-        # Set up host compilation arguments
-        cmd = []
-        cmd.append(f"{cuda_install_path()}/bin/nvcc")
-        cmd.extend(["-x", "cu", "-Xcompiler=-fpermissive", "-Xcompiler=-w", "-Xcompiler=-fPIC"])
-        cmd.extend(host_compilation_options.get_str().split(" "))
-        cmd.extend(["-shared", "-o", temp_dst.name, temp_src.name, "-lcudart", "-lcuda"])
+        cmd += " - -shared -o %s -lcudart -lcuda" % temp.name
+        compile_with_nvcc(cmd, source_buffer_host, error_file="./cutlass_python_compilation_host_error.txt")
+        host_lib = ctypes.CDLL(temp.name)
 
-        # Comile and load the library
-        compile_with_nvcc( cmd, source_buffer_host, error_file="./cutlass_python_compilation_host_error.txt")
-        host_lib = ctypes.CDLL(temp_dst.name)
-
-        return cubin_image, host_lib, temp_dst
+        return cubin_image, host_lib, temp
 
     def add_module(self, operations, compile_options=None, bypass_cache=False):
         """
         Insert a new compiled device module
         """
         include_paths = [
-            cuda_install_path() + "/include",
+            CUDA_INSTALL_PATH + "/include",
             CUTLASS_PATH + "/include",
             CUTLASS_PATH + "/tools/util/include",
             CUTLASS_PATH + "/python/cutlass/cpp/include",
         ]
 
-        cutlass.initialize_cuda_context()
-        arch = device_cc()
-
+        if device_cc() is not None:
+            arch = device_cc()
+        else:
+            # Find the maximum arch tag among the provided operations and compile for that target.
+            # Since we are compiling to .cubin files, only one architecture may be specified.
+            arch = max([op.arch for op in operations])
         host_compile_options = CompilationOptions(
             self._nvcc_compile_options, arch, include_paths)
         if compile_options is None:

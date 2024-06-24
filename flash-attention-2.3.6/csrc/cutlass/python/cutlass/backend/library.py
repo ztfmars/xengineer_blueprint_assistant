@@ -1,6 +1,6 @@
 #################################################################################################
 #
-# Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -36,7 +36,7 @@ Common data types and string names/tags for them
 
 import enum
 
-from cutlass_library import (
+from cutlass import (
     ComplexTransform,
     DataType,
     DataTypeSize,
@@ -92,6 +92,18 @@ class DataTypeSizeBytes:
                 f"Data type datatype is not an integer number of bytes."
             )
         return bits // 8
+
+
+SharedMemPerCC = {
+    70: 96 << 10,  # 96KB of SMEM
+    72: 96 << 10,  # 96KB of SMEM
+    75: 64 << 10,  # 64KB of SMEM
+    80: 160 << 10,  # 164KB of SMEM - 4KB reserved for the driver
+    86: 100 << 10,  # 100KB of SMEM
+    87: 160 << 10,  # 164KB of SMEM - 4KB reserved for the driver
+    89: 100 << 10,  # 100KB of SMEM
+    90: 227 << 10,  # 228KB of SMEM - 1KB reserved for the driver
+}
 
 
 class SchedulerMode(enum.Enum):
@@ -265,11 +277,11 @@ class TileDescription:
         :type math_instruction: MathInstruction
         :param cluster_shape: number of threadblocks in the [X, Y, Z] dimensions of a threadblock cluster
         :param kernel_schedule: type of kernel schedule to use (only available for SM90+)
-        :type kernel_schedule: cutlass_library.KernelScheduleType
+        :type kernel_schedule: cutlass.KernelScheduleType
         :param epilogue_schedule: type of epilogue schedule to use (only available for SM90+)
-        :type epilogue_schedule: cutlass_library.EpilogueScheduleType
+        :type epilogue_schedule: cutlass.EpilogueScheduleType
         :param tile_scheduler: type of tile scheduler to use (only available for SM90+)
-        :type tile_scheduler: cutlass_library.TileSchedulerType
+        :type tile_scheduler: cutlass.TileSchedulerType
         """
         if ((kernel_schedule is None and epilogue_schedule is not None) or
             (kernel_schedule is not None and epilogue_schedule is None)):
@@ -401,10 +413,7 @@ class TensorDescription:
     def __init__(self, element, layout, alignment=1, complex_transform=ComplexTransform.none):
         self.element = element
         self.layout = layout
-        if element != DataType.void:
-            self.alignment = min(128 // DataTypeSize[self.element], alignment)
-        else:
-            self.alignment = alignment
+        self.alignment = min(128 // DataTypeSize[self.element], alignment)
         self.complex_transform = complex_transform
 
 
@@ -464,9 +473,9 @@ def api_version(arch, opclass, dtype):
     :param arch: compute capability of device on which to run
     :type arch: int
     :param opclass: class of the operation being performed
-    :type opclass: cutlass_library.OpcodeClass
+    :type opclass: cutlass.OpcodeClass
     :param dtype: data type to be used in operation (assumes that ElementA and ElementB are the same)
-    :type dtype: cutlass_library.DataType
+    :type dtype: cutlass.DataType
 
     :return: API version to be used in code emission
     :rtype: ApiVersion
