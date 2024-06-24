@@ -12,6 +12,9 @@ import time
 import json
 from modelscope import snapshot_download
 
+############## install flash attention
+os.system("cd ./flash-attention-2.3.6")
+os.system("python setup.py install")
 
 ############## parameters
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
