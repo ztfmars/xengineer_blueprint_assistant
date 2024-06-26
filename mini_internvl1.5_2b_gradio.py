@@ -28,7 +28,7 @@ from modelscope import snapshot_download
 # command_str = " && ".join(commands)
 # process = subprocess.run(command_str, shell=True, check=True)
 # print("----->flash att install end")
-os.system("MAX_JOBS=4 pip install flash-attn==2.3.6 --no-build-isolation")
+# os.system("MAX_JOBS=4 pip install flash-attn==2.3.6 --no-build-isolation")
 ############## parameters
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
