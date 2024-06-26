@@ -11,3 +11,4 @@ ninja
 setuptools==69.5.1
 numpy==1.23.4
 deepspeed==0.13.5
+lmdeploy==0.4.2
