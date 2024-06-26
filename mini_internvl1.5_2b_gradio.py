@@ -6,6 +6,8 @@ from PIL import Image
 import os
 from lmdeploy import pipeline, TurbomindEngineConfig, GenerationConfig
 from lmdeploy import pipeline, ChatTemplateConfig
+from lmdeploy import pipeline, TurbomindEngineConfig, GenerationConfig
+from lmdeploy import pipeline, ChatTemplateConfig
 from modelscope import snapshot_download
 
 
@@ -22,8 +24,19 @@ pipe = pipeline(model_path,
                 chat_template_config=ChatTemplateConfig(model_name='internvl-internlm2'),
                 backend_config=backend_config)
 
+# use lmdeploy
+backend_config = TurbomindEngineConfig(session_len=8192,cache_max_entry_count=0.05) # 图片分辨率较高时请调高session_len
+pipe = pipeline(model_path,
+                chat_template_config=ChatTemplateConfig(model_name='internvl-internlm2'),
+                backend_config=backend_config)
+
 # 创建模型预测函数
 def build_model(image, text, temperature, top_p, max_new_tokens):
+
+    gen_config = GenerationConfig(top_p=top_p,
+                            top_k=40,
+                            temperature=temperature,
+                            max_new_tokens=max_new_tokens)
 
     gen_config = GenerationConfig(top_p=top_p,
                             top_k=40,
@@ -33,6 +46,9 @@ def build_model(image, text, temperature, top_p, max_new_tokens):
     if image is None:
         return [(text, "请上传一张图片。")]
     else:
+        # pixel_values = load_image(image)
+        response = pipe((text, image), gen_config=gen_config).text
+        print("------> response: ", response)
         # pixel_values = load_image(image)
         response = pipe((text, image), gen_config=gen_config).text
         print("------> response: ", response)
@@ -55,6 +71,7 @@ with gr.Blocks(title="InternVL-Chat", theme=gr.themes.Default(), css=block_css) 
 
             # 参数调节组件
             with gr.Accordion("Parameters", open=False) as parameter_row:
+                temperature = gr.Slider(minimum=0.0, maximum=1.0, value=0.0, step=0.1, interactive=True, label="Temperature")
                 temperature = gr.Slider(minimum=0.0, maximum=1.0, value=0.0, step=0.1, interactive=True, label="Temperature")
                 top_p = gr.Slider(minimum=0.0, maximum=1.0, value=0.7, step=0.1, interactive=True, label="Top P")
                 max_output_tokens = gr.Slider(minimum=0, maximum=4096, value=512, step=64, interactive=True, label="Max output tokens")
@@ -81,5 +98,5 @@ with gr.Blocks(title="InternVL-Chat", theme=gr.themes.Default(), css=block_css) 
 
 
 if __name__ == '__main__':
-    demo.launch(server_name='0.0.0.0', server_port= 6006, show_error=True, share=True) 
+    demo.launch(server_name='0.0.0.0', server_port= 7860, show_error=True, share=True) 
     
