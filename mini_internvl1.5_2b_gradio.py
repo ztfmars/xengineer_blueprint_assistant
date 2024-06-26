@@ -6,13 +6,10 @@ from PIL import Image
 import os
 from lmdeploy import pipeline, TurbomindEngineConfig, GenerationConfig
 from lmdeploy import pipeline, ChatTemplateConfig
-from lmdeploy import pipeline, TurbomindEngineConfig, GenerationConfig
-from lmdeploy import pipeline, ChatTemplateConfig
 from modelscope import snapshot_download
 
 
 # model_path = '/home/fusionai/project/internvl/internVL_demo/train/internvl_chat_v1_5_internlm2_1_8b_logic500_ft'
-
 snapshot_download('ztfmars/Mini-InternVL-Chat-2B-V1-5-ft',cache_dir='./llm_model')
 
 cur_dir = os.path.dirname(os.path.abspath(__file__))
@@ -71,7 +68,6 @@ with gr.Blocks(title="InternVL-Chat", theme=gr.themes.Default(), css=block_css) 
 
             # 参数调节组件
             with gr.Accordion("Parameters", open=False) as parameter_row:
-                temperature = gr.Slider(minimum=0.0, maximum=1.0, value=0.0, step=0.1, interactive=True, label="Temperature")
                 temperature = gr.Slider(minimum=0.0, maximum=1.0, value=0.0, step=0.1, interactive=True, label="Temperature")
                 top_p = gr.Slider(minimum=0.0, maximum=1.0, value=0.7, step=0.1, interactive=True, label="Top P")
                 max_output_tokens = gr.Slider(minimum=0, maximum=4096, value=512, step=64, interactive=True, label="Max output tokens")
